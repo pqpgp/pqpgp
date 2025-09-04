@@ -14,7 +14,7 @@ use rand::{rngs::OsRng, Rng};
 #[test]
 fn property_encryption_decryption_roundtrip() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
     // Test with various message sizes and contents
     for _ in 0..50 {
@@ -137,7 +137,7 @@ fn property_nonce_size_enforcement() {
 /// Property: Algorithm validation should only accept whitelisted algorithms
 #[test]
 fn property_algorithm_whitelist_enforcement() {
-    let valid_algorithms = [100, 101]; // ML-KEM-768, ML-DSA-65
+    let valid_algorithms = [100, 101]; // ML-KEM-1024, ML-DSA-87
 
     // Test all possible u8 values
     for algorithm_id in 0u8..=255u8 {

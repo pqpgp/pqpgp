@@ -19,7 +19,7 @@ fn test_end_to_end_encryption() {
 
     // Generate Bob's key pair for encryption test
     let bob_keypair =
-        KeyPair::generate_mlkem768(&mut rng).expect("Failed to generate Bob's key pair");
+        KeyPair::generate_mlkem1024(&mut rng).expect("Failed to generate Bob's key pair");
 
     // Test message
     let original_message = b"This is a secret post-quantum message from Alice to Bob!";
@@ -42,7 +42,7 @@ fn test_end_to_end_signing() {
 
     // Generate signing key pair
     let alice_keypair =
-        KeyPair::generate_mldsa65(&mut rng).expect("Failed to generate Alice's signing key pair");
+        KeyPair::generate_mldsa87(&mut rng).expect("Failed to generate Alice's signing key pair");
 
     // Test message
     let message = b"This document is signed by Alice with post-quantum cryptography";
@@ -98,7 +98,7 @@ fn test_armor_integration() {
     let mut rng = OsRng;
 
     // Generate a key pair
-    let keypair = KeyPair::generate_mlkem768(&mut rng).expect("Failed to generate key pair");
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).expect("Failed to generate key pair");
 
     // Test message
     let message = b"Test message for armor integration";
@@ -144,9 +144,9 @@ fn test_keyring_management_workflow() {
 
     // Generate key pairs
     let alice_keypair =
-        KeyPair::generate_mlkem768(&mut rng).expect("Failed to generate Alice's key pair");
+        KeyPair::generate_mlkem1024(&mut rng).expect("Failed to generate Alice's key pair");
     let bob_keypair =
-        KeyPair::generate_mldsa65(&mut rng).expect("Failed to generate Bob's key pair");
+        KeyPair::generate_mldsa87(&mut rng).expect("Failed to generate Bob's key pair");
 
     // Add keys to keyring
     keyring
@@ -326,7 +326,7 @@ fn test_large_message_handling() {
     let mut rng = OsRng;
 
     // Generate key pair
-    let keypair = KeyPair::generate_mlkem768(&mut rng).expect("Failed to generate key pair");
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).expect("Failed to generate key pair");
 
     // Create a large message (1MB)
     let large_message: Vec<u8> = (0..1_000_000).map(|i| (i % 256) as u8).collect();
@@ -362,7 +362,7 @@ fn test_key_export_import_workflow() {
 
     // Create first keyring with a key
     let mut keyring1 = KeyringManager::with_directory(&keyring1_path);
-    let keypair = KeyPair::generate_mlkem768(&mut rng).expect("Failed to generate key pair");
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).expect("Failed to generate key pair");
 
     keyring1
         .add_keypair(&keypair, Some("Test User <test@example.com>".to_string()))

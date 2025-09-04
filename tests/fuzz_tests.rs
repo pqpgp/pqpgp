@@ -91,7 +91,7 @@ fn fuzz_user_id_parsing() {
 #[test]
 fn fuzz_message_sizes() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
     // Test various message sizes including edge cases
     let sizes = vec![
@@ -319,7 +319,7 @@ fn fuzz_concurrent_operations() {
     use std::thread;
 
     let mut rng = OsRng;
-    let keypair = Arc::new(KeyPair::generate_mlkem768(&mut rng).unwrap());
+    let keypair = Arc::new(KeyPair::generate_mlkem1024(&mut rng).unwrap());
 
     let handles: Vec<_> = (0..10)
         .map(|_| {

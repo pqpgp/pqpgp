@@ -353,12 +353,12 @@ impl PublicKeyPacket {
         let algorithm_byte = data[5];
 
         // Validate algorithm ID
-        let valid_algorithms = [100, 101]; // Mlkem768, Mldsa65
+        let valid_algorithms = [100, 101]; // Mlkem1024, Mldsa87
         Validator::validate_algorithm_id(algorithm_byte, &valid_algorithms)?;
 
         let algorithm = match algorithm_byte {
-            100 => Algorithm::Mlkem768,
-            101 => Algorithm::Mldsa65,
+            100 => Algorithm::Mlkem1024,
+            101 => Algorithm::Mldsa87,
             _ => {
                 return Err(PqpgpError::validation(format!(
                     "Unsupported algorithm: {}",
@@ -466,14 +466,14 @@ mod tests {
     #[test]
     fn test_public_key_packet() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let pk_packet = PublicKeyPacket::from_public_key(keypair.public_key());
         let bytes = pk_packet.to_bytes();
 
         let parsed = PublicKeyPacket::from_bytes(&bytes).unwrap();
         assert_eq!(parsed.version, 4);
-        assert_eq!(parsed.algorithm, Algorithm::Mlkem768);
+        assert_eq!(parsed.algorithm, Algorithm::Mlkem1024);
         assert_eq!(parsed.key_material, keypair.public_key().as_bytes());
     }
 

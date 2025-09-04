@@ -136,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         secret_message.as_bytes(),
         None,
     )?;
-    println!("✅ Message signed using ML-DSA-65");
+    println!("✅ Message signed using ML-DSA-87");
     println!("   Signature key ID: {:016X}", signature.key_id);
 
     // Serialize the signature for the signed message armor
@@ -168,7 +168,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         signed_message_armor.as_bytes(),
         &mut rng,
     )?;
-    println!("✅ Signed message encrypted using ML-KEM-768");
+    println!("✅ Signed message encrypted using ML-KEM-1024");
 
     // Serialize and armor the encrypted message
     let encrypted_serialized = bincode::serialize(&encrypted_message)?;
@@ -268,7 +268,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("✅ Signature verification successful!");
     println!("   Signed by key: {:016X}", received_signature.key_id);
-    println!("   Signature algorithm: ML-DSA-65");
+    println!("   Signature algorithm: ML-DSA-87");
     println!("   Message authenticity and integrity confirmed!");
     println!("   Sign-then-encrypt workflow completed successfully!");
     println!();
@@ -332,19 +332,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("===========================================");
 
     println!("🔐 Cryptographic Algorithms Used:");
-    println!("   • Encryption: ML-KEM-768 (NIST FIPS 203)");
-    println!("   • Signatures: ML-DSA-65 (NIST FIPS 204)");
+    println!("   • Encryption: ML-KEM-1024 (NIST FIPS 203)");
+    println!("   • Signatures: ML-DSA-87 (NIST FIPS 204)");
     println!("   • Symmetric: AES-256-GCM");
     println!("   • Hashing: SHA3-256");
     println!();
 
     println!("📏 Key Sizes:");
     println!(
-        "   • ML-KEM-768 public key: {} bytes",
+        "   • ML-KEM-1024 public key: {} bytes",
         alice_enc_key.public_key().as_bytes().len()
     );
     println!(
-        "   • ML-DSA-65 public key: {} bytes",
+        "   • ML-DSA-87 public key: {} bytes",
         alice_sign_key.public_key().as_bytes().len()
     );
     println!();

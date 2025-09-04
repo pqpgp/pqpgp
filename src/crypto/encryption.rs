@@ -1,7 +1,7 @@
 //! Post-quantum hybrid encryption operations.
 //!
 //! This module provides secure message encryption and decryption using a hybrid
-//! approach: ML-KEM-768 for key encapsulation and AES-256-GCM for symmetric encryption
+//! approach: ML-KEM-1024 for key encapsulation and AES-256-GCM for symmetric encryption
 //! of the actual message content. This provides both post-quantum security and
 //! high performance for large messages.
 
@@ -13,7 +13,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
-use pqcrypto_mlkem::mlkem768;
+use pqcrypto_mlkem::mlkem1024;
 use pqcrypto_traits::kem::{Ciphertext, SharedSecret};
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ pub struct EncryptedMessage {
     pub sym_algorithm: Algorithm,
     /// The recipient's key ID
     pub recipient_key_id: u64,
-    /// The encapsulated symmetric key (ML-KEM-768 ciphertext)
+    /// The encapsulated symmetric key (ML-KEM-1024 ciphertext)
     pub encapsulated_key: Vec<u8>,
     /// The AES-GCM nonce (12 bytes)
     pub nonce: Vec<u8>,
@@ -109,7 +109,7 @@ impl fmt::Display for EncryptedMessage {
 /// Encrypts a message using post-quantum hybrid encryption
 ///
 /// # Arguments
-/// * `recipient_public_key` - The recipient's public key (must be ML-KEM-768)
+/// * `recipient_public_key` - The recipient's public key (must be ML-KEM-1024)
 /// * `message` - The message to encrypt
 /// * `rng` - Cryptographically secure random number generator
 ///
@@ -122,7 +122,7 @@ impl fmt::Display for EncryptedMessage {
 /// use rand::rngs::OsRng;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut rng = OsRng;
-/// let recipient_keypair = KeyPair::generate_mlkem768(&mut rng)?;
+/// let recipient_keypair = KeyPair::generate_mlkem1024(&mut rng)?;
 /// let message = b"Hello, post-quantum world!";
 /// let encrypted = encrypt_message(recipient_keypair.public_key(), message, &mut rng)?;
 /// # Ok(())
@@ -143,20 +143,20 @@ pub fn encrypt_message<R: CryptoRng + RngCore>(
         ));
     }
 
-    // Only support ML-KEM-768 for now
-    if recipient_public_key.algorithm() != Algorithm::Mlkem768 {
+    // Only support ML-KEM-1024 for now
+    if recipient_public_key.algorithm() != Algorithm::Mlkem1024 {
         return Err(PqpgpError::message(
-            "Only ML-KEM-768 encryption is supported",
+            "Only ML-KEM-1024 encryption is supported",
         ));
     }
 
-    // Get the reconstructed ML-KEM-768 public key
+    // Get the reconstructed ML-KEM-1024 public key
     let public_key = recipient_public_key
-        .as_mlkem768()
-        .map_err(|e| PqpgpError::message(format!("Failed to get ML-KEM-768 public key: {}", e)))?;
+        .as_mlkem1024()
+        .map_err(|e| PqpgpError::message(format!("Failed to get ML-KEM-1024 public key: {}", e)))?;
 
     // Generate a random symmetric key and encapsulate it
-    let (shared_secret, ciphertext) = mlkem768::encapsulate(&public_key);
+    let (shared_secret, ciphertext) = mlkem1024::encapsulate(&public_key);
 
     // Derive AES key from the shared secret using a KDF
     let mut aes_key_material = hash_data(shared_secret.as_bytes());
@@ -187,7 +187,7 @@ pub fn encrypt_message<R: CryptoRng + RngCore>(
     let ciphertext_bytes = ciphertext.as_bytes().to_vec();
 
     Ok(EncryptedMessage::new(
-        Algorithm::Mlkem768,
+        Algorithm::Mlkem1024,
         Algorithm::Aes256Gcm,
         recipient_public_key.key_id(),
         ciphertext_bytes,
@@ -200,7 +200,7 @@ pub fn encrypt_message<R: CryptoRng + RngCore>(
 /// Decrypts a message using post-quantum hybrid decryption
 ///
 /// # Arguments
-/// * `private_key` - The recipient's private key (must be ML-KEM-768)
+/// * `private_key` - The recipient's private key (must be ML-KEM-1024)
 /// * `encrypted_message` - The encrypted message to decrypt
 ///
 /// # Returns
@@ -212,7 +212,7 @@ pub fn encrypt_message<R: CryptoRng + RngCore>(
 /// use rand::rngs::OsRng;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut rng = OsRng;
-/// let keypair = KeyPair::generate_mlkem768(&mut rng)?;
+/// let keypair = KeyPair::generate_mlkem1024(&mut rng)?;
 /// let message = b"Hello, post-quantum world!";
 /// let encrypted = encrypt_message(keypair.public_key(), message, &mut rng)?;
 /// let decrypted = decrypt_message(keypair.private_key(), &encrypted, None)?;
@@ -240,9 +240,9 @@ pub fn decrypt_message(
     }
 
     // Verify algorithms
-    if encrypted_message.kem_algorithm != Algorithm::Mlkem768 {
+    if encrypted_message.kem_algorithm != Algorithm::Mlkem1024 {
         return Err(PqpgpError::message(
-            "Only ML-KEM-768 decryption is supported",
+            "Only ML-KEM-1024 decryption is supported",
         ));
     }
     if encrypted_message.sym_algorithm != Algorithm::Aes256Gcm {
@@ -251,20 +251,20 @@ pub fn decrypt_message(
         ));
     }
 
-    // Get the reconstructed ML-KEM-768 secret key
+    // Get the reconstructed ML-KEM-1024 secret key
     let secret_key = private_key
-        .as_mlkem768(password)
-        .map_err(|e| PqpgpError::message(format!("Failed to get ML-KEM-768 secret key: {}", e)))?;
+        .as_mlkem1024(password)
+        .map_err(|e| PqpgpError::message(format!("Failed to get ML-KEM-1024 secret key: {}", e)))?;
 
     // Reconstruct ciphertext
-    let ciphertext = mlkem768::Ciphertext::from_bytes(&encrypted_message.encapsulated_key)
+    let ciphertext = mlkem1024::Ciphertext::from_bytes(&encrypted_message.encapsulated_key)
         .map_err(|_| PqpgpError::message(format!(
-            "Failed to reconstruct ML-KEM-768 ciphertext: expected length based on temporary CT, got {} bytes",
+            "Failed to reconstruct ML-KEM-1024 ciphertext: expected length based on temporary CT, got {} bytes",
             encrypted_message.encapsulated_key.len()
         )))?;
 
     // Decapsulate to get the shared secret
-    let shared_secret = mlkem768::decapsulate(&ciphertext, &secret_key);
+    let shared_secret = mlkem1024::decapsulate(&ciphertext, &secret_key);
 
     // Derive AES key from the shared secret (same as during encryption)
     let mut aes_key_material = hash_data(shared_secret.as_bytes());
@@ -337,8 +337,8 @@ pub fn decrypt_data<T: for<'de> Deserialize<'de>>(
 
 /// Estimates the encrypted message size for a given plaintext size
 pub fn estimate_encrypted_size(plaintext_size: usize) -> usize {
-    // Get actual ciphertext size - it's always the same for ML-KEM-768
-    let ciphertext_size = std::mem::size_of::<mlkem768::Ciphertext>();
+    // Get actual ciphertext size - it's always the same for ML-KEM-1024
+    let ciphertext_size = std::mem::size_of::<mlkem1024::Ciphertext>();
 
     ciphertext_size + // Encapsulated key
     12 + // Nonce  
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn test_hybrid_encryption_decryption() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let message = b"Hello, post-quantum hybrid encryption!";
 
@@ -363,7 +363,7 @@ mod tests {
         let encrypted = encrypt_message(keypair.public_key(), message, &mut rng).unwrap();
 
         // Verify encrypted message properties
-        assert_eq!(encrypted.kem_algorithm, Algorithm::Mlkem768);
+        assert_eq!(encrypted.kem_algorithm, Algorithm::Mlkem1024);
         assert_eq!(encrypted.sym_algorithm, Algorithm::Aes256Gcm);
         assert_eq!(encrypted.recipient_key_id, keypair.key_id());
         assert!(!encrypted.encrypted_content.is_empty());
@@ -378,19 +378,19 @@ mod tests {
     #[test]
     fn test_encryption_with_wrong_key_type_fails() {
         let mut rng = OsRng;
-        let signing_keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let signing_keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let message = b"Test message";
 
-        // ML-DSA-65 key should not be able to encrypt
+        // ML-DSA-87 key should not be able to encrypt
         assert!(encrypt_message(signing_keypair.public_key(), message, &mut rng).is_err());
     }
 
     #[test]
     fn test_decryption_with_wrong_key_fails() {
         let mut rng = OsRng;
-        let keypair1 = KeyPair::generate_mlkem768(&mut rng).unwrap();
-        let keypair2 = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair1 = KeyPair::generate_mlkem1024(&mut rng).unwrap();
+        let keypair2 = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let message = b"Test message";
         let encrypted = encrypt_message(keypair1.public_key(), message, &mut rng).unwrap();
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn test_message_authentication() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let message = b"Test message";
         let mut encrypted = encrypt_message(keypair.public_key(), message, &mut rng).unwrap();
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn test_large_message_encryption() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         // Create a large message (1MB)
         let large_message = vec![0x42u8; 1024 * 1024];
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_batch_encryption_decryption() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let messages = [
             b"First message".as_slice(),
@@ -466,7 +466,7 @@ mod tests {
         }
 
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let data = TestData {
             name: "test".to_string(),
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn test_encrypted_message_display() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let message = b"Test message";
         let encrypted = encrypt_message(keypair.public_key(), message, &mut rng).unwrap();
@@ -491,7 +491,7 @@ mod tests {
         let display_str = format!("{}", encrypted);
         assert!(display_str.contains("EncryptedMessage"));
         assert!(display_str.contains(&format!("{:016X}", keypair.key_id())));
-        assert!(display_str.contains("ML-KEM-768"));
+        assert!(display_str.contains("ML-KEM-1024"));
         assert!(display_str.contains("AES-256-GCM"));
     }
 

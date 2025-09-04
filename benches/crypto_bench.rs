@@ -8,12 +8,12 @@ fn bench_key_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("key_generation");
     let mut rng = OsRng;
 
-    group.bench_function("mlkem768", |b| {
-        b.iter(|| KeyPair::generate_mlkem768(&mut rng))
+    group.bench_function("mlkem1024", |b| {
+        b.iter(|| KeyPair::generate_mlkem1024(&mut rng))
     });
 
-    group.bench_function("mldsa65", |b| {
-        b.iter(|| KeyPair::generate_mldsa65(&mut rng))
+    group.bench_function("mldsa87", |b| {
+        b.iter(|| KeyPair::generate_mldsa87(&mut rng))
     });
 
     group.finish();
@@ -35,7 +35,7 @@ fn bench_encryption_operations(c: &mut Criterion) {
     let mut rng = OsRng;
 
     // Pre-generate key pairs for consistent benchmarking
-    let mlkem_keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let mlkem_keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
     let (hybrid_enc_keypair, _hybrid_sig_keypair) = KeyPair::generate_hybrid(&mut rng).unwrap();
 
     // Test different message sizes
@@ -43,9 +43,9 @@ fn bench_encryption_operations(c: &mut Criterion) {
     let medium_msg = vec![0u8; 1024]; // 1KB
     let large_msg = vec![0u8; 64 * 1024]; // 64KB
 
-    // ML-KEM-768 encryption benchmarks
+    // ML-KEM-1024 encryption benchmarks
     group.throughput(Throughput::Bytes(64));
-    group.bench_function("mlkem768_encrypt_64b", |b| {
+    group.bench_function("mlkem1024_encrypt_64b", |b| {
         b.iter(|| {
             encrypt_message(
                 black_box(mlkem_keypair.public_key()),
@@ -56,7 +56,7 @@ fn bench_encryption_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(1024));
-    group.bench_function("mlkem768_encrypt_1kb", |b| {
+    group.bench_function("mlkem1024_encrypt_1kb", |b| {
         b.iter(|| {
             encrypt_message(
                 black_box(mlkem_keypair.public_key()),
@@ -67,7 +67,7 @@ fn bench_encryption_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(64 * 1024));
-    group.bench_function("mlkem768_encrypt_64kb", |b| {
+    group.bench_function("mlkem1024_encrypt_64kb", |b| {
         b.iter(|| {
             encrypt_message(
                 black_box(mlkem_keypair.public_key()),
@@ -119,7 +119,7 @@ fn bench_decryption_operations(c: &mut Criterion) {
     let mut rng = OsRng;
 
     // Pre-generate key pairs and encrypted messages for consistent benchmarking
-    let mlkem_keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let mlkem_keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
     let (hybrid_enc_keypair, _hybrid_sig_keypair) = KeyPair::generate_hybrid(&mut rng).unwrap();
 
     let small_msg = vec![0u8; 64];
@@ -140,9 +140,9 @@ fn bench_decryption_operations(c: &mut Criterion) {
     let hybrid_encrypted_large =
         encrypt_message(hybrid_enc_keypair.public_key(), &large_msg, &mut rng).unwrap();
 
-    // ML-KEM-768 decryption benchmarks
+    // ML-KEM-1024 decryption benchmarks
     group.throughput(Throughput::Bytes(64));
-    group.bench_function("mlkem768_decrypt_64b", |b| {
+    group.bench_function("mlkem1024_decrypt_64b", |b| {
         b.iter(|| {
             decrypt_message(
                 black_box(mlkem_keypair.private_key()),
@@ -153,7 +153,7 @@ fn bench_decryption_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(1024));
-    group.bench_function("mlkem768_decrypt_1kb", |b| {
+    group.bench_function("mlkem1024_decrypt_1kb", |b| {
         b.iter(|| {
             decrypt_message(
                 black_box(mlkem_keypair.private_key()),
@@ -164,7 +164,7 @@ fn bench_decryption_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(64 * 1024));
-    group.bench_function("mlkem768_decrypt_64kb", |b| {
+    group.bench_function("mlkem1024_decrypt_64kb", |b| {
         b.iter(|| {
             decrypt_message(
                 black_box(mlkem_keypair.private_key()),
@@ -216,7 +216,7 @@ fn bench_signature_operations(c: &mut Criterion) {
     let mut rng = OsRng;
 
     // Pre-generate key pairs for consistent benchmarking
-    let mldsa_keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+    let mldsa_keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
     let (_hybrid_enc_keypair, hybrid_sig_keypair) = KeyPair::generate_hybrid(&mut rng).unwrap();
 
     // Test different message sizes
@@ -224,9 +224,9 @@ fn bench_signature_operations(c: &mut Criterion) {
     let medium_msg = vec![0u8; 1024];
     let large_msg = vec![0u8; 64 * 1024];
 
-    // ML-DSA-65 signing benchmarks
+    // ML-DSA-87 signing benchmarks
     group.throughput(Throughput::Bytes(64));
-    group.bench_function("mldsa65_sign_64b", |b| {
+    group.bench_function("mldsa87_sign_64b", |b| {
         b.iter(|| {
             sign_message(
                 black_box(mldsa_keypair.private_key()),
@@ -237,7 +237,7 @@ fn bench_signature_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(1024));
-    group.bench_function("mldsa65_sign_1kb", |b| {
+    group.bench_function("mldsa87_sign_1kb", |b| {
         b.iter(|| {
             sign_message(
                 black_box(mldsa_keypair.private_key()),
@@ -248,7 +248,7 @@ fn bench_signature_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(64 * 1024));
-    group.bench_function("mldsa65_sign_64kb", |b| {
+    group.bench_function("mldsa87_sign_64kb", |b| {
         b.iter(|| {
             sign_message(
                 black_box(mldsa_keypair.private_key()),
@@ -300,7 +300,7 @@ fn bench_verification_operations(c: &mut Criterion) {
     let mut rng = OsRng;
 
     // Pre-generate key pairs and signatures for consistent benchmarking
-    let mldsa_keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+    let mldsa_keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
     let (_hybrid_enc_keypair, hybrid_sig_keypair) = KeyPair::generate_hybrid(&mut rng).unwrap();
 
     let small_msg = vec![0u8; 64];
@@ -318,9 +318,9 @@ fn bench_verification_operations(c: &mut Criterion) {
     let hybrid_sig_large =
         sign_message(hybrid_sig_keypair.private_key(), &large_msg, None).unwrap();
 
-    // ML-DSA-65 verification benchmarks
+    // ML-DSA-87 verification benchmarks
     group.throughput(Throughput::Bytes(64));
-    group.bench_function("mldsa65_verify_64b", |b| {
+    group.bench_function("mldsa87_verify_64b", |b| {
         b.iter(|| {
             verify_signature(
                 black_box(mldsa_keypair.public_key()),
@@ -331,7 +331,7 @@ fn bench_verification_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(1024));
-    group.bench_function("mldsa65_verify_1kb", |b| {
+    group.bench_function("mldsa87_verify_1kb", |b| {
         b.iter(|| {
             verify_signature(
                 black_box(mldsa_keypair.public_key()),
@@ -342,7 +342,7 @@ fn bench_verification_operations(c: &mut Criterion) {
     });
 
     group.throughput(Throughput::Bytes(64 * 1024));
-    group.bench_function("mldsa65_verify_64kb", |b| {
+    group.bench_function("mldsa87_verify_64kb", |b| {
         b.iter(|| {
             verify_signature(
                 black_box(mldsa_keypair.public_key()),

@@ -24,8 +24,8 @@ pub fn generate_key(algorithm: Algorithm, user_id: &str, password_protected: boo
 
     // Generate key pair based on algorithm
     let mut keypair = match algorithm {
-        Algorithm::Mlkem768 => KeyPair::generate_mlkem768(&mut rng)?,
-        Algorithm::Mldsa65 => KeyPair::generate_mldsa65(&mut rng)?,
+        Algorithm::Mlkem1024 => KeyPair::generate_mlkem1024(&mut rng)?,
+        Algorithm::Mldsa87 => KeyPair::generate_mldsa87(&mut rng)?,
         _ => {
             return Err(crate::error::PqpgpError::crypto(format!(
                 "Unsupported algorithm for key generation: {}",

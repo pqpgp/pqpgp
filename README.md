@@ -4,7 +4,7 @@ A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, provi
 
 ## 🔒 Security Features
 
-- **Post-Quantum Cryptography**: Uses NIST-standardized ML-KEM-768 and ML-DSA-65 algorithms
+- **Post-Quantum Cryptography**: Uses NIST-standardized ML-KEM-1024 and ML-DSA-87 algorithms
 - **Hybrid Approach**: Combines classical and post-quantum algorithms for maximum security
 - **Password Protection**: Optional Argon2id-based password encryption for private keys
 - **PGP Compatible**: Standard PGP packet formats (RFC 4880) with new algorithm identifiers
@@ -67,8 +67,8 @@ assert_eq!(message, original_message);
 
 ```bash
 # Generate a new key pair (optionally with password protection)
-./target/release/pqpgp generate-key mlkem768 "Alice <alice@example.com>"
-./target/release/pqpgp generate-key mldsa65 "Bob <bob@example.com>" --password
+./target/release/pqpgp generate-key mlkem1024 "Alice <alice@example.com>"
+./target/release/pqpgp generate-key mldsa87 "Bob <bob@example.com>" --password
 
 # List all keys in keyring
 ./target/release/pqpgp list-keys
@@ -127,7 +127,7 @@ PQPGP supports optional password-based encryption of private keys using industry
 use pqpgp::crypto::{KeyPair, Password};
 
 // Generate key pair
-let mut keypair = KeyPair::generate_mlkem768(&mut rng)?;
+let mut keypair = KeyPair::generate_mlkem1024(&mut rng)?;
 
 // Protect with password
 let password = Password::new("my_secure_password".to_string());
@@ -148,8 +148,8 @@ let signature = sign_message(keypair.private_key(), message, Some(&password))?;
 
 | Operation | Algorithm | NIST Standard | Key Size |
 |-----------|-----------|---------------|----------|
-| Key Encapsulation | ML-KEM-768 | FIPS 203 | 1,184 bytes |
-| Digital Signatures | ML-DSA-65 | FIPS 204 | 1,952 bytes |
+| Key Encapsulation | ML-KEM-1024 | FIPS 203 | 1,568 bytes |
+| Digital Signatures | ML-DSA-87 | FIPS 204 | 2,592 bytes |
 | Symmetric Encryption | AES-256-GCM | FIPS 197 | 32 bytes |
 | Hashing | SHA3-256 | FIPS 202 | 32 bytes |
 | Password Hashing | Argon2id | RFC 9106 | 32 bytes |
@@ -175,8 +175,8 @@ cargo test --release
 ```
 src/
 ├── crypto/           # Post-quantum cryptographic operations
-│   ├── encryption.rs # ML-KEM-768 hybrid encryption
-│   ├── signature.rs  # ML-DSA-65 digital signatures
+│   ├── encryption.rs # ML-KEM-1024 hybrid encryption
+│   ├── signature.rs  # ML-DSA-87 digital signatures
 │   ├── password.rs   # Argon2id password-based key protection
 │   └── keys.rs       # Key generation and management
 ├── packet/           # PGP packet format implementation
@@ -257,8 +257,8 @@ Current estimates suggest large-scale quantum computers capable of breaking RSA 
 
 ### Algorithm Selection
 
-- **ML-KEM-768**: Provides security equivalent to AES-192 against quantum attacks
-- **ML-DSA-65**: Provides security equivalent to SHA3-256 against quantum attacks
+- **ML-KEM-1024**: Provides security equivalent to AES-256 against quantum attacks
+- **ML-DSA-87**: Provides security equivalent to SHA3-256 against quantum attacks
 - **Conservative Parameters**: Chosen for long-term security rather than minimal size
 
 ### Password Security

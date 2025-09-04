@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate key pairs
     println!("📊 Step 1: Generating post-quantum key pairs...");
-    let encryption_keypair = KeyPair::generate_mlkem768(&mut rng)?;
-    let signing_keypair = KeyPair::generate_mldsa65(&mut rng)?;
+    let encryption_keypair = KeyPair::generate_mlkem1024(&mut rng)?;
+    let signing_keypair = KeyPair::generate_mldsa87(&mut rng)?;
 
     println!("✅ Generated keys:");
     println!("   Encryption key ID: {:016X}", encryption_keypair.key_id());
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Encrypt
     let encrypted = encrypt_message(encryption_keypair.public_key(), message, &mut rng)?;
-    println!("🔒 Message encrypted with ML-KEM-768");
+    println!("🔒 Message encrypted with ML-KEM-1024");
 
     // Decrypt
     let decrypted = decrypt_message(encryption_keypair.private_key(), &encrypted, None)?;
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sign
     let signature = sign_message(signing_keypair.private_key(), document, None)?;
-    println!("✅ Document signed with ML-DSA-65");
+    println!("✅ Document signed with ML-DSA-87");
 
     // Verify
     verify_signature(signing_keypair.public_key(), document, &signature)?;
@@ -65,8 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Security information
     println!("🛡️ Security Information:");
-    println!("   • Encryption: ML-KEM-768 (quantum-resistant)");
-    println!("   • Signatures: ML-DSA-65 (quantum-resistant)");
+    println!("   • Encryption: ML-KEM-1024 (quantum-resistant)");
+    println!("   • Signatures: ML-DSA-87 (quantum-resistant)");
     println!("   • All algorithms are NIST-standardized");
     println!("   • Secure against quantum computer attacks");
 

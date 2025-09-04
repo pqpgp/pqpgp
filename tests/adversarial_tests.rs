@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 #[test]
 fn test_timing_attack_resistance() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
     let message = b"test message for timing analysis";
 
     let mut timing_samples = Vec::new();
@@ -63,7 +63,7 @@ fn test_timing_attack_resistance() {
 #[test]
 fn test_decryption_timing_consistency() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
     let message = b"test message for decryption timing";
 
     // Create valid encrypted message
@@ -303,7 +303,7 @@ fn test_injection_attack_protection() {
 #[test]
 fn test_padding_oracle_protection() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
     let message = b"padding oracle test message";
 
     let encrypted = encrypt_message(keypair.public_key(), message, &mut rng).unwrap();
@@ -351,7 +351,7 @@ fn test_padding_oracle_protection() {
 #[test]
 fn test_replay_attack_protection() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
     let message = b"test message for replay attack";
 
     // Encrypt the same message multiple times
@@ -433,7 +433,7 @@ fn test_concurrent_attack_resistance() {
     use std::thread;
 
     let mut rng = OsRng;
-    let keypair = Arc::new(KeyPair::generate_mlkem768(&mut rng).unwrap());
+    let keypair = Arc::new(KeyPair::generate_mlkem1024(&mut rng).unwrap());
     let error_count = Arc::new(Mutex::new(0));
     let success_count = Arc::new(Mutex::new(0));
 

@@ -17,7 +17,7 @@
     <div class="form-group">
         <label><strong>Algorithm:</strong></label>
         <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px;">
-            {% if algorithm == "ML-KEM-768" %}
+            {% if algorithm == "ML-KEM-1024" %}
                 <span class="status-badge" style="background-color: #bee3f8; color: #2a4365;">🔒 {{ algorithm }} <small>(Post-Quantum Encryption)</small></span>
             {% else %}
                 <span class="status-badge" style="background-color: #e6fffa; color: #234e52;">✍️ {{ algorithm }} <small>(Post-Quantum Signatures)</small></span>
@@ -38,7 +38,7 @@
         <label><strong>Public Key (PGP Armored Format):</strong></label>
         <div class="code-block">{{ public_key_armored }}</div>
         <small style="color: #718096; display: block; margin-top: 10px;">
-            💡 Copy this entire block to share your public key. Others can import this to encrypt messages for you{% if algorithm == "ML-DSA-65" %} or verify your signatures{% endif %}.
+            💡 Copy this entire block to share your public key. Others can import this to encrypt messages for you{% if algorithm == "ML-DSA-87" %} or verify your signatures{% endif %}.
         </small>
     </div>
     
@@ -72,7 +72,7 @@
     <div style="margin-top: 20px; padding: 15px; background-color: #fffbf0; border: 1px solid #fbd38d; border-radius: 8px;">
         <h4 style="margin-top: 0; color: #744210;">🔐 Security Properties</h4>
         <ul style="margin-bottom: 0; color: #744210;">
-            {% if algorithm == "ML-KEM-768" %}
+            {% if algorithm == "ML-KEM-1024" %}
             <li><strong>Encryption Key:</strong> Others use this key to encrypt messages only you can read</li>
             <li><strong>Quantum-Resistant:</strong> Protected against future quantum computer attacks</li>
             <li><strong>Forward Secure:</strong> Past messages remain secure even if compromised</li>

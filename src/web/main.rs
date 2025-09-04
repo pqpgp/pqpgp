@@ -222,8 +222,8 @@ async fn generate_key(
     };
 
     let algorithm = match form.data.algorithm.as_str() {
-        "mlkem768" => Algorithm::Mlkem768,
-        "mldsa65" => Algorithm::Mldsa65,
+        "mlkem1024" => Algorithm::Mlkem1024,
+        "mldsa87" => Algorithm::Mldsa87,
         _ => {
             error!("Invalid algorithm specified: {}", form.data.algorithm);
             return Err(StatusCode::BAD_REQUEST);
@@ -262,8 +262,8 @@ async fn generate_key(
 
     // Generate key pair
     let mut keypair = match algorithm {
-        Algorithm::Mlkem768 => KeyPair::generate_mlkem768(&mut rng),
-        Algorithm::Mldsa65 => KeyPair::generate_mldsa65(&mut rng),
+        Algorithm::Mlkem1024 => KeyPair::generate_mlkem1024(&mut rng),
+        Algorithm::Mldsa87 => KeyPair::generate_mldsa87(&mut rng),
         _ => {
             error!("Unsupported algorithm for key generation: {:?}", algorithm);
             return Err(StatusCode::BAD_REQUEST);
@@ -700,7 +700,7 @@ async fn encrypt_page(
 
     let recipients: Vec<RecipientInfo> = entries
         .iter()
-        .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem768)
+        .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem1024)
         .map(|(key_id, entry, _)| RecipientInfo {
             key_id: format!("{:016X}", key_id),
             user_id: entry.user_ids.first().cloned().unwrap_or_default(),
@@ -710,7 +710,7 @@ async fn encrypt_page(
     let signing_keys: Vec<SigningKeyInfo> = entries
         .into_iter()
         .filter(|(_, entry, has_private)| {
-            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa65
+            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
         })
         .map(|(key_id, entry, _)| SigningKeyInfo {
             key_id: format!("{:016X}", key_id),
@@ -764,7 +764,7 @@ async fn encrypt_message(
      -> EncryptTemplate {
         let recipients: Vec<RecipientInfo> = all_entries
             .iter()
-            .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem768)
+            .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem1024)
             .map(|(key_id, entry, _)| RecipientInfo {
                 key_id: format!("{:016X}", key_id),
                 user_id: entry.user_ids.first().cloned().unwrap_or_default(),
@@ -774,7 +774,7 @@ async fn encrypt_message(
         let signing_keys: Vec<SigningKeyInfo> = all_entries
             .iter()
             .filter(|(_, entry, has_private)| {
-                *has_private && entry.public_key.algorithm() == Algorithm::Mldsa65
+                *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
             })
             .map(|(key_id, entry, _)| SigningKeyInfo {
                 key_id: format!("{:016X}", key_id),
@@ -821,8 +821,8 @@ async fn encrypt_message(
     let matching_entries: Vec<_> = all_entries
         .iter()
         .filter(|(_, entry, _)| {
-            // Must be a ML-KEM-768 key AND match the user ID
-            entry.public_key.algorithm() == Algorithm::Mlkem768
+            // Must be a ML-KEM-1024 key AND match the user ID
+            entry.public_key.algorithm() == Algorithm::Mlkem1024
                 && entry
                     .user_ids
                     .iter()
@@ -885,7 +885,7 @@ async fn encrypt_message(
             let signing_entry = all_entries.iter().find(|(key_id, entry, has_private)| {
                 *key_id == signing_key_id
                     && *has_private
-                    && entry.public_key.algorithm() == Algorithm::Mldsa65
+                    && entry.public_key.algorithm() == Algorithm::Mldsa87
             });
 
             let _signing_entry = match signing_entry {
@@ -1088,7 +1088,7 @@ async fn encrypt_message(
 
     let recipients: Vec<RecipientInfo> = all_entries
         .iter()
-        .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem768)
+        .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem1024)
         .map(|(key_id, entry, _)| RecipientInfo {
             key_id: format!("{:016X}", key_id),
             user_id: entry.user_ids.first().cloned().unwrap_or_default(),
@@ -1098,7 +1098,7 @@ async fn encrypt_message(
     let signing_keys: Vec<SigningKeyInfo> = all_entries
         .iter()
         .filter(|(_, entry, has_private)| {
-            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa65
+            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
         })
         .map(|(key_id, entry, _)| SigningKeyInfo {
             key_id: format!("{:016X}", key_id),
@@ -1417,7 +1417,7 @@ async fn sign_page(
     let signing_keys: Vec<SigningKeyInfo> = entries
         .into_iter()
         .filter(|(_, entry, has_private)| {
-            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa65
+            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
         })
         .map(|(key_id, entry, _)| SigningKeyInfo {
             key_id: format!("{:016X}", key_id),
@@ -1467,7 +1467,7 @@ async fn sign_message(
         let signing_keys: Vec<SigningKeyInfo> = all_entries
             .iter()
             .filter(|(_, entry, has_private)| {
-                *has_private && entry.public_key.algorithm() == Algorithm::Mldsa65
+                *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
             })
             .map(|(key_id, entry, _)| SigningKeyInfo {
                 key_id: format!("{:016X}", key_id),
@@ -1640,7 +1640,7 @@ async fn sign_message(
     let signing_keys: Vec<SigningKeyInfo> = all_entries
         .into_iter()
         .filter(|(_, entry, has_private)| {
-            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa65
+            *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
         })
         .map(|(key_id, entry, _)| SigningKeyInfo {
             key_id: format!("{:016X}", key_id),

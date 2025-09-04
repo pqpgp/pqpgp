@@ -34,10 +34,10 @@ pub use signature::{
 /// Supported post-quantum algorithm identifiers for PGP packets
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Algorithm {
-    /// ML-KEM-768 for key encapsulation (NIST standardized)
-    Mlkem768 = 100,
-    /// ML-DSA-65 for digital signatures (NIST standardized)
-    Mldsa65 = 101,
+    /// ML-KEM-1024 for key encapsulation (NIST standardized)
+    Mlkem1024 = 100,
+    /// ML-DSA-87 for digital signatures (NIST standardized)
+    Mldsa87 = 101,
     /// AES-256-GCM for symmetric encryption
     Aes256Gcm = 102,
     /// SHA3-256 for hashing
@@ -48,8 +48,8 @@ impl Algorithm {
     /// Returns the algorithm name as a string
     pub fn name(&self) -> &'static str {
         match self {
-            Algorithm::Mlkem768 => "ML-KEM-768",
-            Algorithm::Mldsa65 => "ML-DSA-65",
+            Algorithm::Mlkem1024 => "ML-KEM-1024",
+            Algorithm::Mldsa87 => "ML-DSA-87",
             Algorithm::Aes256Gcm => "AES-256-GCM",
             Algorithm::Sha3_256 => "SHA3-256",
         }
@@ -58,16 +58,16 @@ impl Algorithm {
     /// Returns the key size in bytes for this algorithm
     pub fn key_size(&self) -> usize {
         match self {
-            Algorithm::Mlkem768 => 1184, // ML-KEM-768 public key size
-            Algorithm::Mldsa65 => 1952,  // ML-DSA-65 public key size
-            Algorithm::Aes256Gcm => 32,  // 256 bits
-            Algorithm::Sha3_256 => 32,   // 256 bits
+            Algorithm::Mlkem1024 => 1568, // ML-KEM-1024 public key size
+            Algorithm::Mldsa87 => 2592,   // ML-DSA-87 public key size
+            Algorithm::Aes256Gcm => 32,   // 256 bits
+            Algorithm::Sha3_256 => 32,    // 256 bits
         }
     }
 
     /// Returns true if this is a post-quantum algorithm
     pub fn is_post_quantum(&self) -> bool {
-        matches!(self, Algorithm::Mlkem768 | Algorithm::Mldsa65)
+        matches!(self, Algorithm::Mlkem1024 | Algorithm::Mldsa87)
     }
 }
 
@@ -259,10 +259,10 @@ mod tests {
 
     #[test]
     fn test_algorithm_properties() {
-        assert_eq!(Algorithm::Mlkem768.name(), "ML-KEM-768");
-        assert_eq!(Algorithm::Mldsa65.name(), "ML-DSA-65");
-        assert!(Algorithm::Mlkem768.is_post_quantum());
-        assert!(Algorithm::Mldsa65.is_post_quantum());
+        assert_eq!(Algorithm::Mlkem1024.name(), "ML-KEM-1024");
+        assert_eq!(Algorithm::Mldsa87.name(), "ML-DSA-87");
+        assert!(Algorithm::Mlkem1024.is_post_quantum());
+        assert!(Algorithm::Mldsa87.is_post_quantum());
         assert!(!Algorithm::Aes256Gcm.is_post_quantum());
     }
 
@@ -288,9 +288,9 @@ mod tests {
     #[test]
     fn test_key_metadata() {
         let key_id = 12345;
-        let metadata = KeyMetadata::new(Algorithm::Mlkem768, KeyUsage::encrypt_only(), key_id);
+        let metadata = KeyMetadata::new(Algorithm::Mlkem1024, KeyUsage::encrypt_only(), key_id);
         assert_eq!(metadata.key_id, key_id);
-        assert_eq!(metadata.algorithm, Algorithm::Mlkem768);
+        assert_eq!(metadata.algorithm, Algorithm::Mlkem1024);
         assert!(metadata.is_valid());
     }
 }

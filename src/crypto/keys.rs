@@ -7,9 +7,9 @@ use crate::crypto::{
     generate_key_id, hash_data, Algorithm, EncryptedPrivateKey, KeyMetadata, KeyUsage, Password,
 };
 use crate::error::{PqpgpError, Result};
-use pqcrypto_mldsa::mldsa65::{self, PublicKey as Mldsa65PublicKey, SecretKey as Mldsa65SecretKey};
-use pqcrypto_mlkem::mlkem768::{
-    self, PublicKey as Mlkem768PublicKey, SecretKey as Mlkem768SecretKey,
+use pqcrypto_mldsa::mldsa87::{self, PublicKey as Mldsa87PublicKey, SecretKey as Mldsa87SecretKey};
+use pqcrypto_mlkem::mlkem1024::{
+    self, PublicKey as Mlkem1024PublicKey, SecretKey as Mlkem1024SecretKey,
 };
 use pqcrypto_traits::kem::{PublicKey as KemPublicKey, SecretKey as KemSecretKey};
 use pqcrypto_traits::sign::{PublicKey as SignPublicKey, SecretKey as SignSecretKey};
@@ -88,9 +88,9 @@ impl std::fmt::Debug for KeyPair {
 }
 
 impl PublicKey {
-    /// Creates a new ML-KEM-768 public key for encryption
-    pub fn new_mlkem768(key: Mlkem768PublicKey, key_id: u64, usage: KeyUsage) -> Self {
-        let metadata = KeyMetadata::new(Algorithm::Mlkem768, usage, key_id);
+    /// Creates a new ML-KEM-1024 public key for encryption
+    pub fn new_mlkem1024(key: Mlkem1024PublicKey, key_id: u64, usage: KeyUsage) -> Self {
+        let metadata = KeyMetadata::new(Algorithm::Mlkem1024, usage, key_id);
         let key_bytes = KemPublicKey::as_bytes(&key).to_vec();
         Self {
             key_bytes,
@@ -98,9 +98,9 @@ impl PublicKey {
         }
     }
 
-    /// Creates a new ML-DSA-65 public key for signatures
-    pub fn new_mldsa65(key: Mldsa65PublicKey, key_id: u64, usage: KeyUsage) -> Self {
-        let metadata = KeyMetadata::new(Algorithm::Mldsa65, usage, key_id);
+    /// Creates a new ML-DSA-87 public key for signatures
+    pub fn new_mldsa87(key: Mldsa87PublicKey, key_id: u64, usage: KeyUsage) -> Self {
+        let metadata = KeyMetadata::new(Algorithm::Mldsa87, usage, key_id);
         let key_bytes = SignPublicKey::as_bytes(&key).to_vec();
         Self {
             key_bytes,
@@ -130,12 +130,12 @@ impl PublicKey {
 
     /// Checks if this key is valid for encryption
     pub fn can_encrypt(&self) -> bool {
-        self.metadata.usage.encrypt && self.metadata.algorithm == Algorithm::Mlkem768
+        self.metadata.usage.encrypt && self.metadata.algorithm == Algorithm::Mlkem1024
     }
 
     /// Checks if this key is valid for signature verification
     pub fn can_verify(&self) -> bool {
-        self.metadata.algorithm == Algorithm::Mldsa65
+        self.metadata.algorithm == Algorithm::Mldsa87
     }
 
     /// Returns the raw key bytes for serialization
@@ -151,31 +151,31 @@ impl PublicKey {
         hash_data(&data)
     }
 
-    /// Returns the ML-KEM-768 public key if this key supports encryption
-    pub fn as_mlkem768(&self) -> Result<Mlkem768PublicKey> {
-        if self.metadata.algorithm != Algorithm::Mlkem768 {
-            return Err(PqpgpError::key("Key is not a ML-KEM-768 key"));
+    /// Returns the ML-KEM-1024 public key if this key supports encryption
+    pub fn as_mlkem1024(&self) -> Result<Mlkem1024PublicKey> {
+        if self.metadata.algorithm != Algorithm::Mlkem1024 {
+            return Err(PqpgpError::key("Key is not a ML-KEM-1024 key"));
         }
 
-        Mlkem768PublicKey::from_bytes(&self.key_bytes)
-            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-KEM-768 public key from bytes"))
+        Mlkem1024PublicKey::from_bytes(&self.key_bytes)
+            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-KEM-1024 public key from bytes"))
     }
 
-    /// Returns the ML-DSA-65 public key if this key supports verification
-    pub fn as_mldsa65(&self) -> Result<Mldsa65PublicKey> {
-        if self.metadata.algorithm != Algorithm::Mldsa65 {
-            return Err(PqpgpError::key("Key is not a ML-DSA-65 key"));
+    /// Returns the ML-DSA-87 public key if this key supports verification
+    pub fn as_mldsa87(&self) -> Result<Mldsa87PublicKey> {
+        if self.metadata.algorithm != Algorithm::Mldsa87 {
+            return Err(PqpgpError::key("Key is not a ML-DSA-87 key"));
         }
 
-        Mldsa65PublicKey::from_bytes(&self.key_bytes)
-            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-DSA-65 public key from bytes"))
+        Mldsa87PublicKey::from_bytes(&self.key_bytes)
+            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-DSA-87 public key from bytes"))
     }
 }
 
 impl PrivateKey {
-    /// Creates a new ML-KEM-768 private key for decryption
-    pub fn new_mlkem768(key: Mlkem768SecretKey, key_id: u64, usage: KeyUsage) -> Self {
-        let metadata = KeyMetadata::new(Algorithm::Mlkem768, usage, key_id);
+    /// Creates a new ML-KEM-1024 private key for decryption
+    pub fn new_mlkem1024(key: Mlkem1024SecretKey, key_id: u64, usage: KeyUsage) -> Self {
+        let metadata = KeyMetadata::new(Algorithm::Mlkem1024, usage, key_id);
         let key_bytes = KemSecretKey::as_bytes(&key).to_vec();
         Self {
             storage: PrivateKeyStorage::Unencrypted(key_bytes),
@@ -183,9 +183,9 @@ impl PrivateKey {
         }
     }
 
-    /// Creates a new ML-DSA-65 private key for signing
-    pub fn new_mldsa65(key: Mldsa65SecretKey, key_id: u64, usage: KeyUsage) -> Self {
-        let metadata = KeyMetadata::new(Algorithm::Mldsa65, usage, key_id);
+    /// Creates a new ML-DSA-87 private key for signing
+    pub fn new_mldsa87(key: Mldsa87SecretKey, key_id: u64, usage: KeyUsage) -> Self {
+        let metadata = KeyMetadata::new(Algorithm::Mldsa87, usage, key_id);
         let key_bytes = SignSecretKey::as_bytes(&key).to_vec();
         Self {
             storage: PrivateKeyStorage::Unencrypted(key_bytes),
@@ -237,19 +237,19 @@ impl PrivateKey {
 
     /// Checks if this key is valid for decryption
     pub fn can_decrypt(&self) -> bool {
-        self.metadata.usage.encrypt && self.metadata.algorithm == Algorithm::Mlkem768
+        self.metadata.usage.encrypt && self.metadata.algorithm == Algorithm::Mlkem1024
     }
 
     /// Checks if this key is valid for signing
     pub fn can_sign(&self) -> bool {
-        self.metadata.usage.sign && self.metadata.algorithm == Algorithm::Mldsa65
+        self.metadata.usage.sign && self.metadata.algorithm == Algorithm::Mldsa87
     }
 
-    /// Returns the ML-KEM-768 private key if this key supports decryption
+    /// Returns the ML-KEM-1024 private key if this key supports decryption
     /// For encrypted keys, a password must be provided
-    pub fn as_mlkem768(&self, password: Option<&Password>) -> Result<Mlkem768SecretKey> {
-        if self.metadata.algorithm != Algorithm::Mlkem768 {
-            return Err(PqpgpError::key("Key is not a ML-KEM-768 key"));
+    pub fn as_mlkem1024(&self, password: Option<&Password>) -> Result<Mlkem1024SecretKey> {
+        if self.metadata.algorithm != Algorithm::Mlkem1024 {
+            return Err(PqpgpError::key("Key is not a ML-KEM-1024 key"));
         }
 
         let key_bytes = match &self.storage {
@@ -262,15 +262,15 @@ impl PrivateKey {
             }
         };
 
-        Mlkem768SecretKey::from_bytes(&key_bytes)
-            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-KEM-768 secret key from bytes"))
+        Mlkem1024SecretKey::from_bytes(&key_bytes)
+            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-KEM-1024 secret key from bytes"))
     }
 
-    /// Returns the ML-DSA-65 private key if this key supports signing
+    /// Returns the ML-DSA-87 private key if this key supports signing
     /// For encrypted keys, a password must be provided
-    pub fn as_mldsa65(&self, password: Option<&Password>) -> Result<Mldsa65SecretKey> {
-        if self.metadata.algorithm != Algorithm::Mldsa65 {
-            return Err(PqpgpError::key("Key is not a ML-DSA-65 key"));
+    pub fn as_mldsa87(&self, password: Option<&Password>) -> Result<Mldsa87SecretKey> {
+        if self.metadata.algorithm != Algorithm::Mldsa87 {
+            return Err(PqpgpError::key("Key is not a ML-DSA-87 key"));
         }
 
         let key_bytes = match &self.storage {
@@ -283,24 +283,24 @@ impl PrivateKey {
             }
         };
 
-        Mldsa65SecretKey::from_bytes(&key_bytes)
-            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-DSA-65 secret key from bytes"))
+        Mldsa87SecretKey::from_bytes(&key_bytes)
+            .map_err(|_| PqpgpError::key("Failed to reconstruct ML-DSA-87 secret key from bytes"))
     }
 }
 
 impl KeyPair {
-    /// Generates a new ML-KEM-768 key pair for encryption/decryption
+    /// Generates a new ML-KEM-1024 key pair for encryption/decryption
     ///
     /// Note: The `rng` parameter is currently ignored as the pqcrypto-mlkem crate
     /// uses its own internal cryptographically secure RNG for key generation.
     /// This is acceptable as the internal RNG provides sufficient cryptographic security.
     ///
     /// Future versions may support custom RNG if the underlying library adds support.
-    pub fn generate_mlkem768<R: CryptoRng + RngCore>(_rng: &mut R) -> Result<Self> {
+    pub fn generate_mlkem1024<R: CryptoRng + RngCore>(_rng: &mut R) -> Result<Self> {
         let usage = KeyUsage::encrypt_only();
 
-        // Note: mlkem768::keypair() uses internal CSPRNG - this is cryptographically secure
-        let (public_key, secret_key) = mlkem768::keypair();
+        // Note: mlkem1024::keypair() uses internal CSPRNG - this is cryptographically secure
+        let (public_key, secret_key) = mlkem1024::keypair();
 
         // Generate deterministic key ID from public key material and current time
         let now = std::time::SystemTime::now()
@@ -308,26 +308,26 @@ impl KeyPair {
             .unwrap()
             .as_secs();
         let key_material = KemPublicKey::as_bytes(&public_key);
-        let key_id = generate_key_id(key_material, Algorithm::Mlkem768, now);
+        let key_id = generate_key_id(key_material, Algorithm::Mlkem1024, now);
 
-        let public = PublicKey::new_mlkem768(public_key, key_id, usage);
-        let private = PrivateKey::new_mlkem768(secret_key, key_id, usage);
+        let public = PublicKey::new_mlkem1024(public_key, key_id, usage);
+        let private = PrivateKey::new_mlkem1024(secret_key, key_id, usage);
 
         Ok(Self { public, private })
     }
 
-    /// Generates a new ML-DSA-65 key pair for signing/verification
+    /// Generates a new ML-DSA-87 key pair for signing/verification
     ///
     /// Note: The `rng` parameter is currently ignored as the pqcrypto-mldsa crate
     /// uses its own internal cryptographically secure RNG for key generation.
     /// This is acceptable as the internal RNG provides sufficient cryptographic security.
     ///
     /// Future versions may support custom RNG if the underlying library adds support.
-    pub fn generate_mldsa65<R: CryptoRng + RngCore>(_rng: &mut R) -> Result<Self> {
+    pub fn generate_mldsa87<R: CryptoRng + RngCore>(_rng: &mut R) -> Result<Self> {
         let usage = KeyUsage::sign_only();
 
-        // Note: mldsa65::keypair() uses internal CSPRNG - this is cryptographically secure
-        let (public_key, secret_key) = mldsa65::keypair();
+        // Note: mldsa87::keypair() uses internal CSPRNG - this is cryptographically secure
+        let (public_key, secret_key) = mldsa87::keypair();
 
         // Generate deterministic key ID from public key material and current time
         let now = std::time::SystemTime::now()
@@ -335,10 +335,10 @@ impl KeyPair {
             .unwrap()
             .as_secs();
         let key_material = SignPublicKey::as_bytes(&public_key);
-        let key_id = generate_key_id(key_material, Algorithm::Mldsa65, now);
+        let key_id = generate_key_id(key_material, Algorithm::Mldsa87, now);
 
-        let public = PublicKey::new_mldsa65(public_key, key_id, usage);
-        let private = PrivateKey::new_mldsa65(secret_key, key_id, usage);
+        let public = PublicKey::new_mldsa87(public_key, key_id, usage);
+        let private = PrivateKey::new_mldsa87(secret_key, key_id, usage);
 
         Ok(Self { public, private })
     }
@@ -346,8 +346,8 @@ impl KeyPair {
     /// Generates a complete key set with both encryption and signing capabilities
     /// Returns (encryption_keypair, signing_keypair)
     pub fn generate_hybrid<R: CryptoRng + RngCore>(rng: &mut R) -> Result<(Self, Self)> {
-        let kem_keypair = Self::generate_mlkem768(rng)?;
-        let dsa_keypair = Self::generate_mldsa65(rng)?;
+        let kem_keypair = Self::generate_mlkem1024(rng)?;
+        let dsa_keypair = Self::generate_mldsa87(rng)?;
         Ok((kem_keypair, dsa_keypair))
     }
 
@@ -422,23 +422,23 @@ mod tests {
     use rand::rngs::OsRng;
 
     #[test]
-    fn test_mlkem768_key_generation() {
+    fn test_mlkem1024_key_generation() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         assert!(keypair.is_valid());
-        assert_eq!(keypair.algorithm(), Algorithm::Mlkem768);
+        assert_eq!(keypair.algorithm(), Algorithm::Mlkem1024);
         assert!(keypair.public_key().can_encrypt());
         assert!(keypair.private_key().can_decrypt());
     }
 
     #[test]
-    fn test_mldsa65_key_generation() {
+    fn test_mldsa87_key_generation() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         assert!(keypair.is_valid());
-        assert_eq!(keypair.algorithm(), Algorithm::Mldsa65);
+        assert_eq!(keypair.algorithm(), Algorithm::Mldsa87);
         assert!(keypair.public_key().can_verify());
         assert!(keypair.private_key().can_sign());
     }
@@ -450,16 +450,16 @@ mod tests {
 
         assert!(kem_keypair.is_valid());
         assert!(dsa_keypair.is_valid());
-        assert_eq!(kem_keypair.algorithm(), Algorithm::Mlkem768);
-        assert_eq!(dsa_keypair.algorithm(), Algorithm::Mldsa65);
+        assert_eq!(kem_keypair.algorithm(), Algorithm::Mlkem1024);
+        assert_eq!(dsa_keypair.algorithm(), Algorithm::Mldsa87);
         assert_ne!(kem_keypair.key_id(), dsa_keypair.key_id());
     }
 
     #[test]
     fn test_key_fingerprints() {
         let mut rng = OsRng;
-        let keypair1 = KeyPair::generate_mlkem768(&mut rng).unwrap();
-        let keypair2 = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair1 = KeyPair::generate_mlkem1024(&mut rng).unwrap();
+        let keypair2 = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let fp1 = keypair1.public_key().fingerprint();
         let fp2 = keypair2.public_key().fingerprint();
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn test_key_serialization() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let bytes = keypair.public_key().as_bytes();
         assert!(!bytes.is_empty());

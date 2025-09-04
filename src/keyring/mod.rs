@@ -279,16 +279,16 @@ impl PublicKeyring {
 
                     // Convert packet back to our PublicKey format based on algorithm
                     public_key = match pk_packet.algorithm {
-                        crate::crypto::Algorithm::Mlkem768 => Some(PublicKey::new_mlkem768(
+                        crate::crypto::Algorithm::Mlkem1024 => Some(PublicKey::new_mlkem1024(
                             KemPublicKey::from_bytes(&pk_packet.key_material).map_err(|_| {
-                                PqpgpError::keyring("Invalid ML-KEM-768 key material")
+                                PqpgpError::keyring("Invalid ML-KEM-1024 key material")
                             })?,
                             key_id,
                             crate::crypto::KeyUsage::encrypt_only(),
                         )),
-                        crate::crypto::Algorithm::Mldsa65 => Some(PublicKey::new_mldsa65(
+                        crate::crypto::Algorithm::Mldsa87 => Some(PublicKey::new_mldsa87(
                             SignTraitPublicKey::from_bytes(&pk_packet.key_material).map_err(
-                                |_| PqpgpError::keyring("Invalid ML-DSA-65 key material"),
+                                |_| PqpgpError::keyring("Invalid ML-DSA-87 key material"),
                             )?,
                             key_id,
                             crate::crypto::KeyUsage::sign_only(),
@@ -334,21 +334,21 @@ impl PublicKeyring {
 
         // Check key material size for known algorithms
         match pk_packet.algorithm {
-            crate::crypto::Algorithm::Mlkem768 => {
-                const EXPECTED_SIZE: usize = 1184; // ML-KEM-768 public key size
+            crate::crypto::Algorithm::Mlkem1024 => {
+                const EXPECTED_SIZE: usize = 1568; // ML-KEM-1024 public key size
                 if pk_packet.key_material.len() != EXPECTED_SIZE {
                     return Err(PqpgpError::keyring(format!(
-                        "Invalid ML-KEM-768 key material size: got {} bytes, expected {} bytes",
+                        "Invalid ML-KEM-1024 key material size: got {} bytes, expected {} bytes",
                         pk_packet.key_material.len(),
                         EXPECTED_SIZE
                     )));
                 }
             }
-            crate::crypto::Algorithm::Mldsa65 => {
-                const EXPECTED_SIZE: usize = 1952; // ML-DSA-65 public key size
+            crate::crypto::Algorithm::Mldsa87 => {
+                const EXPECTED_SIZE: usize = 2592; // ML-DSA-87 public key size
                 if pk_packet.key_material.len() != EXPECTED_SIZE {
                     return Err(PqpgpError::keyring(format!(
-                        "Invalid ML-DSA-65 key material size: got {} bytes, expected {} bytes",
+                        "Invalid ML-DSA-87 key material size: got {} bytes, expected {} bytes",
                         pk_packet.key_material.len(),
                         EXPECTED_SIZE
                     )));
@@ -614,7 +614,7 @@ mod tests {
     #[test]
     fn test_key_entry_creation() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let entry = KeyEntry::from_keypair(&keypair, Some("test@example.com".to_string()));
 
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn test_public_keyring_operations() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
         let mut keyring = PublicKeyring::new();
 
         let entry =
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn test_private_keyring_operations() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
         let mut keyring = PrivateKeyring::new();
 
         let entry = KeyEntry::from_keypair(&keypair, Some("bob@example.com".to_string()));
@@ -692,7 +692,7 @@ mod tests {
     #[test]
     fn test_keyring_manager() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
         let mut manager = KeyringManager::new();
 
         let key_id = keypair.key_id();
@@ -726,7 +726,7 @@ mod tests {
         let keyring_path = temp_dir.path().to_path_buf();
 
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
         let key_id = keypair.key_id();
 
         // Create and save keyring
@@ -752,7 +752,7 @@ mod tests {
     #[test]
     fn test_key_expiration() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let mut entry = KeyEntry::from_keypair(&keypair, None);
         assert!(!entry.is_expired());
@@ -779,7 +779,7 @@ mod tests {
     #[test]
     fn test_key_trust() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let mut entry = KeyEntry::from_keypair(&keypair, None);
         assert!(!entry.trusted);
@@ -791,7 +791,7 @@ mod tests {
     #[test]
     fn test_multiple_user_ids() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let mut entry = KeyEntry::from_keypair(&keypair, Some("primary@example.com".to_string()));
         entry.add_user_id("secondary@example.com".to_string());

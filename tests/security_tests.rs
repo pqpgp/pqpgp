@@ -16,7 +16,7 @@ use std::time::Duration;
 #[test]
 fn test_oversized_message_rejected() {
     let mut rng = OsRng;
-    let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+    let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
     // Create a message that exceeds the maximum size
     let oversized_message = vec![0u8; MAX_MESSAGE_SIZE + 1];
@@ -145,7 +145,7 @@ fn test_rate_limiting_prevents_dos() {
 
 #[test]
 fn test_algorithm_id_validation() {
-    let valid_algorithms = [100, 101]; // Only ML-KEM-768 and ML-DSA-65
+    let valid_algorithms = [100, 101]; // Only ML-KEM-1024 and ML-DSA-87
 
     // Valid algorithms should pass
     assert!(Validator::validate_algorithm_id(100, &valid_algorithms).is_ok());

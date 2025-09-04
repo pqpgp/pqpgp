@@ -17,7 +17,7 @@
 
 <div class="card">
     <h2>🔑 Key Management</h2>
-    <p>Manage your post-quantum cryptographic keys. Generate new key pairs for encryption (ML-KEM-768) or digital signatures (ML-DSA-65).</p>
+    <p>Manage your post-quantum cryptographic keys. Generate new key pairs for encryption (ML-KEM-1024) or digital signatures (ML-DSA-87).</p>
     
     <form method="post" action="/keys/generate">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -25,8 +25,8 @@
             <label for="algorithm">Algorithm Type:</label>
             <select name="algorithm" id="algorithm" required>
                 <option value="">Select algorithm...</option>
-                <option value="mlkem768">ML-KEM-768 - Post-Quantum Encryption</option>
-                <option value="mldsa65">ML-DSA-65 - Post-Quantum Digital Signatures</option>
+                <option value="mlkem1024">ML-KEM-1024 - Post-Quantum Encryption</option>
+                <option value="mldsa87">ML-DSA-87 - Post-Quantum Digital Signatures</option>
             </select>
         </div>
         
@@ -147,7 +147,7 @@
                 <tr>
                     <td><span class="key-id">{{ key.key_id }}</span></td>
                     <td>
-                        {% if key.algorithm == "ML-KEM-768" %}
+                        {% if key.algorithm == "ML-KEM-1024" %}
                             <span class="status-badge" style="background-color: #bee3f8; color: #2a4365;">🔒 {{ key.algorithm }} <small>(Encryption)</small></span>
                         {% else %}
                             <span class="status-badge" style="background-color: #e6fffa; color: #234e52;">✍️ {{ key.algorithm }} <small>(Signatures)</small></span>
@@ -194,8 +194,8 @@
         <div style="margin-top: 20px; padding: 15px; background-color: #f7fafc; border-radius: 8px;">
             <h4 style="margin-top: 0; color: #4a5568;">💡 Key Usage Guide</h4>
             <ul style="margin-bottom: 0;">
-                <li><strong>ML-KEM-768</strong> keys provide <strong>post-quantum encryption</strong> - secure against both classical and quantum computer attacks.</li>
-                <li><strong>ML-DSA-65</strong> keys provide <strong>post-quantum digital signatures</strong> - quantum-resistant message authentication and integrity.</li>
+                <li><strong>ML-KEM-1024</strong> keys provide <strong>post-quantum encryption</strong> - secure against both classical and quantum computer attacks.</li>
+                <li><strong>ML-DSA-87</strong> keys provide <strong>post-quantum digital signatures</strong> - quantum-resistant message authentication and integrity.</li>
                 <li>Keys with <strong>private key available</strong> can be used for decryption and signing operations.</li>
                 <li>Public keys can be shared with others so they can encrypt messages for you or verify your signatures.</li>
             </ul>

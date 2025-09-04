@@ -5,7 +5,7 @@
 {% block content %}
 <div class="card">
     <h2>🔒 Encrypt Message</h2>
-    <p>Encrypt a message using post-quantum cryptography. Optionally sign the message first for authentication. The message will be secured with ML-KEM-768 key encapsulation and AES-256-GCM symmetric encryption.</p>
+    <p>Encrypt a message using post-quantum cryptography. Optionally sign the message first for authentication. The message will be secured with ML-KEM-1024 key encapsulation and AES-256-GCM symmetric encryption.</p>
     
     {% if has_error %}
         <div class="alert alert-error">
@@ -16,7 +16,7 @@
     {% if recipients.is_empty() %}
         <div class="alert alert-error">
             <p><strong>No encryption keys available.</strong></p>
-            <p>You need to generate or import ML-KEM-768 keys before you can encrypt messages.</p>
+            <p>You need to generate or import ML-KEM-1024 keys before you can encrypt messages.</p>
             <a href="/keys" class="btn">🔑 Manage Keys</a>
         </div>
     {% else %}
@@ -85,7 +85,7 @@
     <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
         <h4 style="margin-top: 0; color: #22543d;">🛡️ Security Information</h4>
         <ul style="margin-bottom: 0; color: #22543d;">
-            <li>Message encrypted with <strong>ML-KEM-768</strong> key encapsulation</li>
+            <li>Message encrypted with <strong>ML-KEM-1024</strong> key encapsulation</li>
             <li>Symmetric encryption using <strong>AES-256-GCM</strong></li>
             <li>Quantum-resistant against future quantum computers</li>
             <li>Only the recipient's private key can decrypt this message</li>
@@ -100,7 +100,7 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
             <h4 style="margin-top: 0; color: #4a5568;">1. Key Encapsulation</h4>
-            <p>ML-KEM-768 algorithm generates a shared secret using the recipient's public key.</p>
+            <p>ML-KEM-1024 algorithm generates a shared secret using the recipient's public key.</p>
         </div>
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">

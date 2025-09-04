@@ -5,7 +5,7 @@
 {% block content %}
 <div class="card">
     <h2>✍️ Sign Message</h2>
-    <p>Create a quantum-resistant digital signature for your message using ML-DSA-65 algorithm. This proves the message's authenticity and integrity.</p>
+    <p>Create a quantum-resistant digital signature for your message using ML-DSA-87 algorithm. This proves the message's authenticity and integrity.</p>
     
     {% if has_error %}
         <div class="alert alert-error">
@@ -16,7 +16,7 @@
     {% if signing_keys.is_empty() %}
         <div class="alert alert-error">
             <p><strong>No signing keys available.</strong></p>
-            <p>You need to generate ML-DSA-65 keys before you can sign messages.</p>
+            <p>You need to generate ML-DSA-87 keys before you can sign messages.</p>
             <a href="/keys" class="btn">🔑 Generate Signing Key</a>
         </div>
     {% else %}
@@ -92,7 +92,7 @@
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">2. Signature Creation</h4>
-            <p>ML-DSA-65 algorithm creates a signature using your private key and the hash.</p>
+            <p>ML-DSA-87 algorithm creates a signature using your private key and the hash.</p>
         </div>
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">

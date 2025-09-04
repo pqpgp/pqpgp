@@ -1,13 +1,13 @@
 //! Post-quantum digital signature operations.
 //!
-//! This module provides secure digital signing and verification using ML-DSA-65,
+//! This module provides secure digital signing and verification using ML-DSA-87,
 //! implementing both detached signatures and signature verification with proper
 //! message authentication and integrity checking.
 
 use crate::crypto::keys::{PrivateKey, PublicKey};
 use crate::crypto::{hash_data, Algorithm, Password};
 use crate::error::{PqpgpError, Result};
-use pqcrypto_mldsa::mldsa65;
+use pqcrypto_mldsa::mldsa87;
 use pqcrypto_traits::sign::DetachedSignature;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -88,7 +88,7 @@ impl fmt::Display for Signature {
 /// Signs a message using a post-quantum private key
 ///
 /// # Arguments
-/// * `private_key` - The private key to sign with (must be ML-DSA-65)
+/// * `private_key` - The private key to sign with (must be ML-DSA-87)
 /// * `message` - The message to sign
 ///
 /// # Returns
@@ -100,7 +100,7 @@ impl fmt::Display for Signature {
 /// use rand::rngs::OsRng;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut rng = OsRng;
-/// let keypair = KeyPair::generate_mldsa65(&mut rng)?;
+/// let keypair = KeyPair::generate_mldsa87(&mut rng)?;
 /// let message = b"Hello, post-quantum world!";
 /// let signature = sign_message(keypair.private_key(), message, None)?;
 /// # Ok(())
@@ -118,23 +118,23 @@ pub fn sign_message(
         ));
     }
 
-    // Only support ML-DSA-65 for now
-    if private_key.algorithm() != Algorithm::Mldsa65 {
+    // Only support ML-DSA-87
+    if private_key.algorithm() != Algorithm::Mldsa87 {
         return Err(PqpgpError::signature(
-            "Only ML-DSA-65 signatures are supported",
+            "Only ML-DSA-87 signatures are supported",
         ));
     }
 
-    // Get the reconstructed ML-DSA-65 secret key
+    // Get the reconstructed ML-DSA-87 secret key
     let secret_key = private_key
-        .as_mldsa65(password)
-        .map_err(|e| PqpgpError::signature(format!("Failed to get ML-DSA-65 secret key: {}", e)))?;
+        .as_mldsa87(password)
+        .map_err(|e| PqpgpError::signature(format!("Failed to get ML-DSA-87 secret key: {}", e)))?;
 
     // Create message hash for signing (prevents signature malleability)
     let message_hash = hash_data(message);
 
     // Sign the message hash
-    let signature_bytes = mldsa65::detached_sign(&message_hash, &secret_key);
+    let signature_bytes = mldsa87::detached_sign(&message_hash, &secret_key);
 
     // Get current timestamp
     let created = std::time::SystemTime::now()
@@ -143,7 +143,7 @@ pub fn sign_message(
         .as_secs();
 
     Ok(Signature::new(
-        Algorithm::Mldsa65,
+        Algorithm::Mldsa87,
         private_key.key_id(),
         signature_bytes.as_bytes().to_vec(),
         created,
@@ -153,7 +153,7 @@ pub fn sign_message(
 /// Verifies a post-quantum digital signature
 ///
 /// # Arguments
-/// * `public_key` - The public key to verify with (must be ML-DSA-65)
+/// * `public_key` - The public key to verify with (must be ML-DSA-87)
 /// * `message` - The original message that was signed
 /// * `signature` - The signature to verify
 ///
@@ -166,7 +166,7 @@ pub fn sign_message(
 /// use rand::rngs::OsRng;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut rng = OsRng;
-/// let keypair = KeyPair::generate_mldsa65(&mut rng)?;
+/// let keypair = KeyPair::generate_mldsa87(&mut rng)?;
 /// let message = b"Hello, post-quantum world!";
 /// let signature = sign_message(keypair.private_key(), message, None)?;
 /// verify_signature(keypair.public_key(), message, &signature)?;
@@ -199,27 +199,27 @@ pub fn verify_signature(
         ));
     }
 
-    // Only support ML-DSA-65 for now
-    if signature.algorithm() != Algorithm::Mldsa65 {
+    // Only support ML-DSA-87
+    if signature.algorithm() != Algorithm::Mldsa87 {
         return Err(PqpgpError::signature(
-            "Only ML-DSA-65 signatures are supported",
+            "Only ML-DSA-87 signatures are supported",
         ));
     }
 
-    // Get the reconstructed ML-DSA-65 public key
+    // Get the reconstructed ML-DSA-87 public key
     let public_key = public_key
-        .as_mldsa65()
-        .map_err(|e| PqpgpError::signature(format!("Failed to get ML-DSA-65 public key: {}", e)))?;
+        .as_mldsa87()
+        .map_err(|e| PqpgpError::signature(format!("Failed to get ML-DSA-87 public key: {}", e)))?;
 
     // Reconstruct signature
-    let detached_signature = mldsa65::DetachedSignature::from_bytes(&signature.signature_bytes)
-        .map_err(|_| PqpgpError::signature("Failed to reconstruct ML-DSA-65 signature"))?;
+    let detached_signature = mldsa87::DetachedSignature::from_bytes(&signature.signature_bytes)
+        .map_err(|_| PqpgpError::signature("Failed to reconstruct ML-DSA-87 signature"))?;
 
     // Hash the message (same as during signing)
     let message_hash = hash_data(message);
 
     // Verify the signature
-    mldsa65::verify_detached_signature(&detached_signature, &message_hash, &public_key)
+    mldsa87::verify_detached_signature(&detached_signature, &message_hash, &public_key)
         .map_err(|_| PqpgpError::signature("Signature verification failed"))?;
 
     Ok(())
@@ -285,14 +285,14 @@ mod tests {
     use rand::rngs::OsRng;
 
     #[test]
-    fn test_mldsa65_signing() {
+    fn test_mldsa87_signing() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let message = b"Test message for post-quantum signing";
         let signature = sign_message(keypair.private_key(), message, None).unwrap();
 
-        assert_eq!(signature.algorithm(), Algorithm::Mldsa65);
+        assert_eq!(signature.algorithm(), Algorithm::Mldsa87);
         assert_eq!(signature.key_id(), keypair.key_id());
         assert!(!signature.signature_bytes().is_empty());
     }
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn test_signature_verification() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let message = b"Test message for signature verification";
         let signature = sign_message(keypair.private_key(), message, None).unwrap();
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn test_signature_verification_fails_with_wrong_message() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let message = b"Original message";
         let wrong_message = b"Modified message";
@@ -325,8 +325,8 @@ mod tests {
     #[test]
     fn test_signature_verification_fails_with_wrong_key() {
         let mut rng = OsRng;
-        let keypair1 = KeyPair::generate_mldsa65(&mut rng).unwrap();
-        let keypair2 = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair1 = KeyPair::generate_mldsa87(&mut rng).unwrap();
+        let keypair2 = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let message = b"Test message";
         let signature = sign_message(keypair1.private_key(), message, None).unwrap();
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn test_batch_signing_and_verification() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let messages = [
             b"First message".as_slice(),
@@ -365,7 +365,7 @@ mod tests {
         }
 
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let data = TestData {
             name: "test".to_string(),
@@ -380,24 +380,24 @@ mod tests {
     #[test]
     fn test_encryption_key_cannot_sign() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mlkem768(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mlkem1024(&mut rng).unwrap();
 
         let message = b"Test message";
 
-        // ML-KEM-768 key should not be able to sign
+        // ML-KEM-1024 key should not be able to sign
         assert!(sign_message(keypair.private_key(), message, None).is_err());
     }
 
     #[test]
     fn test_signature_display() {
         let mut rng = OsRng;
-        let keypair = KeyPair::generate_mldsa65(&mut rng).unwrap();
+        let keypair = KeyPair::generate_mldsa87(&mut rng).unwrap();
 
         let message = b"Test message";
         let signature = sign_message(keypair.private_key(), message, None).unwrap();
 
         let display_str = format!("{}", signature);
-        assert!(display_str.contains("ML-DSA-65"));
+        assert!(display_str.contains("ML-DSA-87"));
         assert!(display_str.contains(&format!("{:016X}", keypair.key_id())));
     }
 }

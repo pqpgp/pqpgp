@@ -59,11 +59,11 @@ pub fn parse_args() -> Result<Command> {
             }
 
             let algorithm = match args[2].as_str() {
-                "mlkem768" => Algorithm::Mlkem768,
-                "mldsa65" => Algorithm::Mldsa65,
+                "mlkem1024" => Algorithm::Mlkem1024,
+                "mldsa87" => Algorithm::Mldsa87,
                 _ => {
                     eprintln!("Error: Unsupported algorithm '{}'", args[2]);
-                    eprintln!("Supported algorithms: mlkem768, mldsa65");
+                    eprintln!("Supported algorithms: mlkem1024, mldsa87");
                     process::exit(1);
                 }
             };
@@ -175,12 +175,12 @@ pub fn print_usage() {
     println!("  verify <input> <signature>                       Verify signature");
     println!();
     println!("Algorithms:");
-    println!("  mlkem768     - ML-KEM-768 for encryption");
-    println!("  mldsa65      - ML-DSA-65 for signatures");
+    println!("  mlkem1024    - ML-KEM-1024 for encryption");
+    println!("  mldsa87      - ML-DSA-87 for signatures");
     println!();
     println!("Examples:");
-    println!("  pqpgp generate-key mlkem768 'Alice <alice@example.com>'");
-    println!("  pqpgp generate-key mldsa65 'Bob <bob@example.com>' --password");
+    println!("  pqpgp generate-key mlkem1024 'Alice <alice@example.com>'");
+    println!("  pqpgp generate-key mldsa87 'Bob <bob@example.com>' --password");
     println!("  pqpgp encrypt alice@example.com message.txt encrypted.asc");
     println!("  pqpgp decrypt encrypted.asc decrypted.txt");
     println!("  pqpgp sign A1B2C3D4E5F60708 document.pdf signature.asc");
