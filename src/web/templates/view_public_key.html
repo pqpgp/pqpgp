@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}PQPGP - View Public Key{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔑 Public Key Details</h2>
+    <p>This is the public key that others can use to encrypt messages for you or verify your signatures. Share this key safely with anyone who needs to communicate securely with you.</p>
+    
+    <div class="form-group">
+        <label><strong>Key ID:</strong></label>
+        <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px; font-family: monospace; word-break: break-all;">
+            {{ key_id }}
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <label><strong>Algorithm:</strong></label>
+        <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px;">
+            {% if algorithm == "ML-KEM-768" %}
+                <span class="status-badge" style="background-color: #bee3f8; color: #2a4365;">🔒 {{ algorithm }} <small>(Post-Quantum Encryption)</small></span>
+            {% else %}
+                <span class="status-badge" style="background-color: #e6fffa; color: #234e52;">✍️ {{ algorithm }} <small>(Post-Quantum Signatures)</small></span>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <label><strong>User IDs:</strong></label>
+        <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px;">
+            {% for user_id in user_ids %}
+                <div style="margin-bottom: 5px;">{{ user_id }}</div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <label><strong>Public Key (PGP Armored Format):</strong></label>
+        <div class="code-block">{{ public_key_armored }}</div>
+        <small style="color: #718096; display: block; margin-top: 10px;">
+            💡 Copy this entire block to share your public key. Others can import this to encrypt messages for you{% if algorithm == "ML-DSA-65" %} or verify your signatures{% endif %}.
+        </small>
+    </div>
+    
+    <div style="margin-top: 20px; display: flex; gap: 15px;">
+        <a href="/keys" class="btn">← Back to Keys</a>
+        <a href="/keys/export/{{ key_id }}" class="btn" style="background-color: #48bb78; color: white; text-decoration: none;">
+            📥 Download as File
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <h2>💡 How to Share Your Public Key</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+            <h4 style="margin-top: 0; color: #4a5568;">1. Copy & Share</h4>
+            <p>Copy the armored public key text above and share it via email, messaging, or upload to a key server.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+            <h4 style="margin-top: 0; color: #4a5568;">2. Download File</h4>
+            <p>Use the download button to save your public key as a .asc file that others can import.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+            <h4 style="margin-top: 0; color: #4a5568;">3. Keep Private Key Safe</h4>
+            <p>Never share your private key! Only share this public key portion with others.</p>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #fffbf0; border: 1px solid #fbd38d; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #744210;">🔐 Security Properties</h4>
+        <ul style="margin-bottom: 0; color: #744210;">
+            {% if algorithm == "ML-KEM-768" %}
+            <li><strong>Encryption Key:</strong> Others use this key to encrypt messages only you can read</li>
+            <li><strong>Quantum-Resistant:</strong> Protected against future quantum computer attacks</li>
+            <li><strong>Forward Secure:</strong> Past messages remain secure even if compromised</li>
+            {% else %}
+            <li><strong>Verification Key:</strong> Others use this key to verify messages you've signed</li>
+            <li><strong>Authentication:</strong> Proves the signature came from you</li>
+            <li><strong>Quantum-Resistant:</strong> Signatures remain valid against quantum attacks</li>
+            {% endif %}
+            <li><strong>Safe to Share:</strong> This public key can be freely distributed</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}PQPGP - Key Management{% endblock %}
+
+{% block content %}
+{% if has_result %}
+<div class="alert alert-success">
+    <strong>{{ result.as_ref().unwrap() }}</strong>
+</div>
+{% endif %}
+
+{% if has_error %}
+<div class="alert alert-error">
+    <strong>Error:</strong> {{ error.as_ref().unwrap() }}
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>🔑 Key Management</h2>
+    <p>Manage your post-quantum cryptographic keys. Generate new key pairs for encryption (ML-KEM-768) or digital signatures (ML-DSA-65).</p>
+    
+    <form method="post" action="/keys/generate">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+            <label for="algorithm">Algorithm Type:</label>
+            <select name="algorithm" id="algorithm" required>
+                <option value="">Select algorithm...</option>
+                <option value="mlkem768">ML-KEM-768 - Post-Quantum Encryption</option>
+                <option value="mldsa65">ML-DSA-65 - Post-Quantum Digital Signatures</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="user_id">User ID (Name and Email):</label>
+            <input type="text" name="user_id" id="user_id" placeholder="Alice Smith &lt;alice@example.com&gt;" required autocomplete="off" spellcheck="false">
+        </div>
+        
+        <div class="form-group">
+            <label for="use_password" style="display: inline-block; cursor: pointer; font-weight: 600; color: #4a5568; margin-bottom: 8px;">
+                <input type="checkbox" name="use_password" id="use_password" onchange="togglePasswordFields()" style="margin-right: 8px; width: auto;">
+                🔒 Protect private key with password
+            </label>
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                Recommended: Encrypts your private key using Argon2id + AES-256-GCM for maximum security.
+            </small>
+        </div>
+        
+        <div id="password_fields" style="display: none;">
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" name="password" id="password" placeholder="Enter a strong password" autocomplete="new-password" spellcheck="false">
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    Use a strong, unique password. This will be required for signing and decryption operations.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="password_confirm">Confirm Password:</label>
+                <input type="password" name="password_confirm" id="password_confirm" placeholder="Confirm your password" autocomplete="new-password" spellcheck="false">
+            </div>
+        </div>
+        
+        <button type="submit" class="btn">🔑 Generate New Key Pair</button>
+        
+        <script>
+        function togglePasswordFields() {
+            const usePassword = document.getElementById('use_password').checked;
+            const passwordFields = document.getElementById('password_fields');
+            const passwordInput = document.getElementById('password');
+            const confirmInput = document.getElementById('password_confirm');
+            
+            if (usePassword) {
+                passwordFields.style.display = 'block';
+                passwordInput.required = true;
+                confirmInput.required = true;
+            } else {
+                passwordFields.style.display = 'none';
+                passwordInput.required = false;
+                confirmInput.required = false;
+                passwordInput.value = '';
+                confirmInput.value = '';
+            }
+        }
+        </script>
+    </form>
+</div>
+
+<div class="card">
+    <h2>📥 Import Public Key</h2>
+    <p>Import someone else's public key to encrypt messages for them or verify their signatures. You can either paste the key text or upload a key file.</p>
+    
+    <form method="post" action="/keys/import" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+            <label for="public_key">Public Key (PGP Armored Format):</label>
+            <textarea name="public_key" id="public_key" rows="10" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----&#10;&#10;Paste the complete armored public key here...&#10;&#10;-----END PGP PUBLIC KEY BLOCK-----" autocomplete="off" spellcheck="false"></textarea>
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                Paste the complete armored public key that someone has shared with you. This should include the "BEGIN" and "END" lines.
+            </small>
+        </div>
+        
+        <div style="text-align: center; margin: 20px 0; color: #718096; font-weight: bold;">
+            — OR —
+        </div>
+        
+        <div class="form-group">
+            <label for="key_file">Upload Public Key File:</label>
+            <input type="file" name="key_file" id="key_file" accept=".asc,.gpg,.pgp,.txt" style="width: 100%; padding: 10px; border: 2px dashed #cbd5e0; border-radius: 8px; background-color: #f7fafc;">
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                Select a file containing the public key. Common formats: .asc (armored), .gpg, .pgp, or .txt files.
+            </small>
+        </div>
+        
+        <button type="submit" class="btn">📥 Import Public Key</button>
+    </form>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #22543d;">💡 Import Options</h4>
+        <ul style="margin-bottom: 0; color: #22543d;">
+            <li>Use either the text box OR file upload (both are checked, text takes precedence)</li>
+            <li>Accepted file types: .asc, .gpg, .pgp, .txt</li>
+            <li>Files can be armored (text) or binary format</li>
+            <li>Only public keys will be imported (private keys are ignored for security)</li>
+        </ul>
+    </div>
+</div>
+
+<div class="card">
+    <h2>📋 Your Keys</h2>
+    {% if keys.is_empty() %}
+        <div class="alert alert-info">
+            <p><strong>No keys found.</strong> Generate your first key pair using the form above.</p>
+        </div>
+    {% else %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Key ID</th>
+                    <th>Algorithm</th>
+                    <th>User IDs</th>
+                    <th>Private Key</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key in keys %}
+                <tr>
+                    <td><span class="key-id">{{ key.key_id }}</span></td>
+                    <td>
+                        {% if key.algorithm == "ML-KEM-768" %}
+                            <span class="status-badge" style="background-color: #bee3f8; color: #2a4365;">🔒 {{ key.algorithm }} <small>(Encryption)</small></span>
+                        {% else %}
+                            <span class="status-badge" style="background-color: #e6fffa; color: #234e52;">✍️ {{ key.algorithm }} <small>(Signatures)</small></span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% for user_id in key.user_ids %}
+                            <div>{{ user_id }}</div>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        {% if key.has_private_key %}
+                            {% if key.is_password_protected %}
+                                <span class="status-badge status-success">🔒 Password Protected</span>
+                            {% else %}
+                                <span class="status-badge status-success">✅ Available</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="status-badge status-error">❌ Not Available</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <a href="/keys/export/{{ key.key_id }}" class="btn btn-small" style="background-color: #48bb78; color: white; text-decoration: none;">
+                                📥 Export Public Key
+                            </a>
+                            <a href="/keys/view/{{ key.key_id }}" class="btn btn-small" style="background-color: #667eea; color: white; text-decoration: none;">
+                                👁️ View Public Key
+                            </a>
+                            <form method="post" action="/keys/delete/{{ key.key_id }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="btn btn-danger btn-small" 
+                                        onclick="return confirm('Are you sure you want to delete this key? This action cannot be undone.')">
+                                    🗑️ Delete
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <div style="margin-top: 20px; padding: 15px; background-color: #f7fafc; border-radius: 8px;">
+            <h4 style="margin-top: 0; color: #4a5568;">💡 Key Usage Guide</h4>
+            <ul style="margin-bottom: 0;">
+                <li><strong>ML-KEM-768</strong> keys provide <strong>post-quantum encryption</strong> - secure against both classical and quantum computer attacks.</li>
+                <li><strong>ML-DSA-65</strong> keys provide <strong>post-quantum digital signatures</strong> - quantum-resistant message authentication and integrity.</li>
+                <li>Keys with <strong>private key available</strong> can be used for decryption and signing operations.</li>
+                <li>Public keys can be shared with others so they can encrypt messages for you or verify your signatures.</li>
+            </ul>
+        </div>
+    {% endif %}
+</div>
+
+{% endblock %}

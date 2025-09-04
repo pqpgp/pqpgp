@@ -1,0 +1,80 @@
+# =============================================================================
+# Rust CI/CD Pipeline for API Server
+#
+# This workflow ensures code quality, security, and functionality by running
+# comprehensive checks on every push and pull request to the main branch.
+#
+# Pipeline stages:
+# 1. Setup: Install Rust toolchain and setup caching for faster builds
+# 2. Build: Verify code compiles successfully
+# 3. Format: Enforce consistent code formatting
+# 4. Lint: Run clippy for code quality and best practices
+# 5. Test: Execute test suite to verify functionality
+# 6. Security: Scan for known vulnerabilities in dependencies
+# =============================================================================
+
+name: Rust
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  # Enable colored output for better readability in CI logs
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository code
+      - uses: actions/checkout@v4
+
+      # Install the latest stable Rust toolchain
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache Cargo dependencies and build artifacts to speed up subsequent runs
+      # This significantly reduces build times by reusing previously downloaded crates
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Verify that the code compiles successfully
+      # This catches compilation errors early in the pipeline
+      - name: Build
+        run: cargo build --verbose
+
+      # Enforce consistent code formatting across the codebase
+      # Fails if any files are not formatted according to rustfmt standards
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # Run Clippy linter to catch common mistakes and enforce best practices
+      # Treats all warnings as errors to maintain high code quality
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      # Execute the full test suite to verify functionality
+      # Includes unit tests, integration tests, and doc tests
+      - name: Run tests
+        run: cargo test --verbose
+
+      # Install cargo-audit if not already available
+      # cargo-audit scans for security vulnerabilities in dependencies
+      - name: Install cargo-audit
+        run: cargo audit --version || cargo install cargo-audit --locked
+
+      # Scan dependencies for known security vulnerabilities
+      - name: Run security audit
+        run: cargo audit

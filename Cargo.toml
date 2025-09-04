@@ -1,0 +1,72 @@
+[package]
+name = "pqpgp"
+version = "0.1.0"
+edition = "2021"
+authors = ["PQPGP Team"]
+description = "Post-Quantum secure implementation of PGP in Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/pqpgp/pqpgp"
+keywords = ["cryptography", "post-quantum", "pgp", "encryption", "security"]
+categories = ["cryptography", "command-line-utilities"]
+
+[dependencies]
+# Post-quantum cryptography - using maintained implementations
+pqcrypto-mlkem = "0.1.1"   # ML-KEM (Module-Lattice-Based Key-Encapsulation Mechanism) implementation
+pqcrypto-mldsa = "0.1.2"   # ML-DSA (Module-Lattice-Based Digital Signature Algorithm) implementation
+pqcrypto-traits = "0.3.5"  # Common traits for PQC operations
+
+# Traditional cryptography for hybrid approach
+aes-gcm = "0.10.3"         # AES-GCM for symmetric encryption
+sha3 = "0.10.8"            # SHA3 for quantum-resistant hashing
+rand = "0.8.5"             # Cryptographically secure random number generation
+subtle = "2.5"             # Constant-time operations for security
+zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
+
+# Password-based key derivation
+argon2 = "0.5"             # Argon2 for password hashing
+rpassword = "7.3"          # Secure password input for CLI
+
+# Serialization and encoding
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3.3"          # Binary serialization
+hex = "0.4.3"              # Hexadecimal encoding
+
+# Error handling
+thiserror = "1.0"          # Error handling macros
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Web server dependencies
+axum = { version = "0.7", features = ["multipart"] }
+tokio = { version = "1.0", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "trace"] }
+askama = "0.12"
+askama_axum = "0.4"
+serde_urlencoded = "0.7"
+tower-sessions = "0.12"       # Session management for CSRF tokens
+uuid = { version = "1.10", features = ["v4"] } # For generating CSRF tokens
+
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+proptest = "1.5.0"         # Property-based testing
+pretty_assertions = "1.4.0"
+tempfile = "3.8.1"         # Temporary file/directory creation for tests
+
+[[bin]]
+name = "pqpgp"
+path = "src/main.rs"
+
+[[bin]]
+name = "pqpgp-web"
+path = "src/web/main.rs"
+
+[lib]
+name = "pqpgp"
+path = "src/lib.rs"
+
+[[bench]]
+name = "crypto_bench"
+harness = false

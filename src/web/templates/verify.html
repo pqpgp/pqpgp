@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}PQPGP - Verify Signature{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>✅ Verify Signature</h2>
+    <p>Verify a digital signature to confirm the message's authenticity and integrity. This uses quantum-resistant ML-DSA-65 verification.</p>
+    
+    {% if has_error %}
+        <div class="alert alert-error">
+            <strong>Verification Error:</strong> {{ error.as_ref().unwrap() }}
+        </div>
+    {% endif %}
+    
+    <form method="post" action="/verify">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+            <label for="message">Original Message:</label>
+            <textarea name="message" id="message" placeholder="Enter the original message that was signed..." required autocomplete="off" spellcheck="false"></textarea>
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                This must be the exact same message that was originally signed. Any changes will cause verification to fail.
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label for="signature">Digital Signature (PGP Armored):</label>
+            <textarea name="signature" id="signature" placeholder="Paste the PGP signature here..." required autocomplete="off" spellcheck="false"></textarea>
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                Paste the complete PGP armored signature including the -----BEGIN PGP SIGNATURE----- and -----END PGP SIGNATURE----- lines.
+            </small>
+        </div>
+        
+        <button type="submit" class="btn">✅ Verify Signature</button>
+    </form>
+</div>
+
+{% if has_result %}
+    {% if is_valid.unwrap() %}
+        <div class="card">
+            <h2>✅ Signature is Valid</h2>
+            <div style="padding: 20px; background-color: #f0fff4; border: 2px solid #48bb78; border-radius: 8px; text-align: center;">
+                <div style="font-size: 4em; margin-bottom: 10px;">✅</div>
+                <h3 style="color: #22543d; margin: 10px 0;">Verification Successful</h3>
+                <p style="color: #22543d; margin-bottom: 0;">
+                    The signature is authentic and the message has not been tampered with.
+                </p>
+            </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
+                <h4 style="margin-top: 0; color: #22543d;">🛡️ What This Means</h4>
+                <ul style="margin-bottom: 0; color: #22543d;">
+                    <li><strong>Authentic:</strong> The signature was created by the holder of the private key</li>
+                    <li><strong>Integrity:</strong> The message content has not been altered</li>
+                    <li><strong>Verified:</strong> The signature matches both the message and the signer's public key</li>
+                    <li><strong>Trusted:</strong> You can trust this message came from the claimed sender</li>
+                </ul>
+            </div>
+        </div>
+    {% else %}
+        <div class="card">
+            <h2>❌ Signature is Invalid</h2>
+            <div style="padding: 20px; background-color: #fed7d7; border: 2px solid #e53e3e; border-radius: 8px; text-align: center;">
+                <div style="font-size: 4em; margin-bottom: 10px;">❌</div>
+                <h3 style="color: #742a2a; margin: 10px 0;">Verification Failed</h3>
+                <p style="color: #742a2a; margin-bottom: 0;">
+                    The signature is invalid or the message has been tampered with.
+                </p>
+            </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background-color: #fed7d7; border: 1px solid #feb2b2; border-radius: 8px;">
+                <h4 style="margin-top: 0; color: #742a2a;">⚠️ Possible Causes</h4>
+                <ul style="margin-bottom: 0; color: #742a2a;">
+                    <li><strong>Message Modified:</strong> The message content may have been changed</li>
+                    <li><strong>Wrong Signature:</strong> The signature might be for a different message</li>
+                    <li><strong>Forged Signature:</strong> Someone may have attempted to forge the signature</li>
+                    <li><strong>Missing Public Key:</strong> The signer's public key may not be in your keyring</li>
+                </ul>
+            </div>
+        </div>
+    {% endif %}
+{% endif %}
+
+<div class="card">
+    <h2>💡 How Signature Verification Works</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+            <h4 style="margin-top: 0; color: #4a5568;">1. Message Hashing</h4>
+            <p>The original message is hashed with SHA3-256 to create a unique fingerprint.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+            <h4 style="margin-top: 0; color: #4a5568;">2. Key Lookup</h4>
+            <p>System finds the signer's public key based on the key ID in the signature.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+            <h4 style="margin-top: 0; color: #4a5568;">3. Cryptographic Verification</h4>
+            <p>ML-DSA-65 algorithm verifies the signature against the hash and public key.</p>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #fffbf0; border: 1px solid #fbd38d; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #744210;">🔍 Verification Tips</h4>
+        <ul style="margin-bottom: 0; color: #744210;">
+            <li>Always verify important messages, especially contracts or sensitive communications</li>
+            <li>Make sure you have the signer's public key in your keyring</li>
+            <li>Copy and paste the exact message content - even extra spaces can cause verification to fail</li>
+            <li>If verification fails unexpectedly, double-check that you have the complete, unmodified message</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

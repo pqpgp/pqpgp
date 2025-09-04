@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}PQPGP - Sign Message{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>✍️ Sign Message</h2>
+    <p>Create a quantum-resistant digital signature for your message using ML-DSA-65 algorithm. This proves the message's authenticity and integrity.</p>
+    
+    {% if has_error %}
+        <div class="alert alert-error">
+            <strong>Error:</strong> {{ error.as_ref().unwrap() }}
+        </div>
+    {% endif %}
+    
+    {% if signing_keys.is_empty() %}
+        <div class="alert alert-error">
+            <p><strong>No signing keys available.</strong></p>
+            <p>You need to generate ML-DSA-65 keys before you can sign messages.</p>
+            <a href="/keys" class="btn">🔑 Generate Signing Key</a>
+        </div>
+    {% else %}
+        <form method="post" action="/sign">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="key_id">Signing Key:</label>
+                <select name="key_id" id="key_id" required>
+                    <option value="">Select signing key...</option>
+                    {% for key in signing_keys %}
+                        <option value="{{ key.key_id }}">{{ key.user_id }} ({{ key.key_id }})</option>
+                    {% endfor %}
+                </select>
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    Select the signing key you want to use for signing. Only you can create signatures with your signing key.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="message">Message to Sign:</label>
+                <textarea name="message" id="message" placeholder="Enter the message you want to sign..." required autocomplete="off" spellcheck="false"></textarea>
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    The signature will be mathematically bound to this exact message content. Any changes will invalidate the signature.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Signing Key Password (if protected):</label>
+                <input type="password" name="password" id="password" placeholder="Enter password for encrypted signing key" autocomplete="current-password" spellcheck="false">
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    Leave empty if your signing key is not password-protected. Required if your key was generated with password protection.
+                </small>
+            </div>
+            
+            <button type="submit" class="btn">✍️ Sign Message</button>
+        </form>
+    {% endif %}
+</div>
+
+{% if has_result %}
+<div class="card">
+    <h2>✅ Message Signed Successfully</h2>
+    <p>Your message has been signed with a quantum-resistant digital signature. Share both the original message and signature for verification.</p>
+    
+    <div class="form-group">
+        <label for="signature_output">Digital Signature (PGP Armored):</label>
+        <div class="code-block">{{ result.as_ref().unwrap() }}</div>
+        <small style="color: #718096; display: block; margin-top: 10px;">
+            💡 This signature can be verified by anyone with your public key to confirm you authored the message and it hasn't been tampered with.
+        </small>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #22543d;">🛡️ Signature Properties</h4>
+        <ul style="margin-bottom: 0; color: #22543d;">
+            <li><strong>Authentication:</strong> Proves you created this signature</li>
+            <li><strong>Integrity:</strong> Detects any changes to the message</li>
+            <li><strong>Non-repudiation:</strong> You cannot deny signing this message</li>
+            <li><strong>Quantum-resistant:</strong> Secure against future quantum computers</li>
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+{% if !signing_keys.is_empty() && !has_result %}
+<div class="card">
+    <h2>💡 How Digital Signatures Work</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+            <h4 style="margin-top: 0; color: #4a5568;">1. Message Hashing</h4>
+            <p>Your message is hashed with SHA3-256 to create a unique fingerprint.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+            <h4 style="margin-top: 0; color: #4a5568;">2. Signature Creation</h4>
+            <p>ML-DSA-65 algorithm creates a signature using your private key and the hash.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+            <h4 style="margin-top: 0; color: #4a5568;">3. Verification</h4>
+            <p>Others can verify the signature using your public key and the original message.</p>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #fffbf0; border: 1px solid #fbd38d; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #744210;">📋 Best Practices</h4>
+        <ul style="margin-bottom: 0; color: #744210;">
+            <li>Sign important documents, contracts, and sensitive communications</li>
+            <li>Keep your private signing keys secure and never share them</li>
+            <li>Verify signatures on messages you receive to ensure authenticity</li>
+            <li>Remember that signatures are tied to the exact message content</li>
+        </ul>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

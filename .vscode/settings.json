@@ -1,0 +1,27 @@
+{
+  "workbench.colorTheme": "One Dark Pro",
+  "editor.fontSize": 18,
+  "editor.codeLens": false,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "terminal.integrated.fontSize": 18,
+  "workbench.editor.enablePreview": false,
+  "javascript.updateImportsOnFileMove.enabled": "always",
+  "editor.formatOnSave": true,
+  "workbench.activityBar.location": "top",
+  "css.validate": false,
+  "editor.inlayHints.enabled": "offUnlessPressed",
+  "remote.autoForwardPorts": false,
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "always"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": null,
+    "editor.formatOnSave": false
+  },
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  }
+}

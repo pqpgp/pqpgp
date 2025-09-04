@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}PQPGP - Encrypt Message{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔒 Encrypt Message</h2>
+    <p>Encrypt a message using post-quantum cryptography. Optionally sign the message first for authentication. The message will be secured with ML-KEM-768 key encapsulation and AES-256-GCM symmetric encryption.</p>
+    
+    {% if has_error %}
+        <div class="alert alert-error">
+            <strong>Error:</strong> {{ error.as_ref().unwrap() }}
+        </div>
+    {% endif %}
+    
+    {% if recipients.is_empty() %}
+        <div class="alert alert-error">
+            <p><strong>No encryption keys available.</strong></p>
+            <p>You need to generate or import ML-KEM-768 keys before you can encrypt messages.</p>
+            <a href="/keys" class="btn">🔑 Manage Keys</a>
+        </div>
+    {% else %}
+        <form method="post" action="/encrypt">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="recipient">Recipient:</label>
+                <select name="recipient" id="recipient" required>
+                    <option value="">Select recipient...</option>
+                    {% for recipient in recipients %}
+                        <option value="{{ recipient.user_id }}">{{ recipient.user_id }} ({{ recipient.key_id }})</option>
+                    {% endfor %}
+                </select>
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    Select the recipient whose public key will be used to encrypt the message.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="message">Message to Encrypt:</label>
+                <textarea name="message" id="message" placeholder="Enter your secret message here..." required autocomplete="off" spellcheck="false"></textarea>
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    This message will be encrypted using quantum-resistant algorithms and can only be decrypted by the recipient's private key.
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="signing_key">Sign Message (Optional):</label>
+                <select name="signing_key" id="signing_key">
+                    <option value="">No signing (encrypt only)</option>
+                    {% for signing_key in signing_keys %}
+                        <option value="{{ signing_key.key_id }}">{{ signing_key.user_id }} ({{ signing_key.key_id }})</option>
+                    {% endfor %}
+                </select>
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    Optional: Select a signing key to create a signed+encrypted message (recommended for authentication).
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Signing Key Password (if protected):</label>
+                <input type="password" name="password" id="password" placeholder="Enter password for encrypted signing key" autocomplete="current-password" spellcheck="false">
+                <small style="color: #718096; display: block; margin-top: 5px;">
+                    Required only if your selected signing key is password-protected.
+                </small>
+            </div>
+            
+            <button type="submit" class="btn">🔒 Encrypt Message</button>
+        </form>
+    {% endif %}
+</div>
+
+{% if has_result %}
+<div class="card">
+    <h2>✅ Encryption Successful</h2>
+    <p>Your message has been encrypted using post-quantum cryptography. If you selected a signing key, the message was signed first for authentication, then encrypted. Share the encrypted message below with the recipient.</p>
+    
+    <div class="form-group">
+        <label for="encrypted_output">Encrypted Message (PGP Armored):</label>
+        <div class="code-block">{{ result.as_ref().unwrap() }}</div>
+        <small style="color: #718096; display: block; margin-top: 10px;">
+            💡 This armored format can be safely transmitted via email, messaging, or stored in text files. Only the recipient's private key can decrypt this message.
+        </small>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #22543d;">🛡️ Security Information</h4>
+        <ul style="margin-bottom: 0; color: #22543d;">
+            <li>Message encrypted with <strong>ML-KEM-768</strong> key encapsulation</li>
+            <li>Symmetric encryption using <strong>AES-256-GCM</strong></li>
+            <li>Quantum-resistant against future quantum computers</li>
+            <li>Only the recipient's private key can decrypt this message</li>
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+{% if !recipients.is_empty() && !has_result %}
+<div class="card">
+    <h2>💡 How Encryption Works</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+            <h4 style="margin-top: 0; color: #4a5568;">1. Key Encapsulation</h4>
+            <p>ML-KEM-768 algorithm generates a shared secret using the recipient's public key.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+            <h4 style="margin-top: 0; color: #4a5568;">2. Symmetric Encryption</h4>
+            <p>Your message is encrypted with AES-256-GCM using the shared secret as the key.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+            <h4 style="margin-top: 0; color: #4a5568;">3. Secure Transport</h4>
+            <p>The encrypted message and encapsulated key are combined into PGP armor format.</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

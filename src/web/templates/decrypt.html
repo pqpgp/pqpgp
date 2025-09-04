@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}PQPGP - Decrypt Message{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔓 Decrypt Message</h2>
+    <p>Decrypt a message that was encrypted for your public key using post-quantum cryptography. The system will automatically try all your available private keys.</p>
+    
+    {% if has_error %}
+        <div class="alert alert-error">
+            <strong>Decryption Failed:</strong> {{ error.as_ref().unwrap() }}
+        </div>
+    {% endif %}
+    
+    <form method="post" action="/decrypt">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+            <label for="encrypted_message">Encrypted Message (PGP Armored):</label>
+            <textarea name="encrypted_message" id="encrypted_message" placeholder="Paste the encrypted PGP message here..." required autocomplete="off" spellcheck="false"></textarea>
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                Paste the complete PGP armored message including the -----BEGIN PGP MESSAGE----- and -----END PGP MESSAGE----- lines.
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label for="password">Private Key Password (if protected):</label>
+            <input type="password" name="password" id="password" placeholder="Enter password for encrypted private key" autocomplete="current-password" spellcheck="false">
+            <small style="color: #718096; display: block; margin-top: 5px;">
+                Leave empty if your private key is not password-protected. Required if your key was generated with password protection.
+            </small>
+        </div>
+        
+        <button type="submit" class="btn">🔓 Decrypt Message</button>
+    </form>
+</div>
+
+{% if has_result %}
+<div class="card">
+    <h2>✅ Decryption Successful</h2>
+    <p>The message has been successfully decrypted using your private key.</p>
+    
+    <div class="form-group">
+        <label for="decrypted_output">Decrypted Message:</label>
+        <div class="code-block">{{ result.as_ref().unwrap() }}</div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #22543d;">🛡️ Security Verification</h4>
+        <ul style="margin-bottom: 0; color: #22543d;">
+            <li>Message was encrypted with <strong>ML-KEM-768</strong> post-quantum cryptography</li>
+            <li>Decryption was performed using your private key</li>
+            <li>Message integrity was verified with <strong>AES-256-GCM</strong> authentication</li>
+            <li>No tampering or corruption was detected</li>
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>💡 How Decryption Works</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+            <h4 style="margin-top: 0; color: #4a5568;">1. Key Identification</h4>
+            <p>System identifies which of your private keys can decrypt the message.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+            <h4 style="margin-top: 0; color: #4a5568;">2. Key Decapsulation</h4>
+            <p>ML-KEM-768 algorithm recovers the shared secret using your private key.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+            <h4 style="margin-top: 0; color: #4a5568;">3. Message Decryption</h4>
+            <p>AES-256-GCM decrypts the message and verifies its integrity.</p>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 15px; background-color: #fffbf0; border: 1px solid #fbd38d; border-radius: 8px;">
+        <h4 style="margin-top: 0; color: #744210;">⚠️ Security Notes</h4>
+        <ul style="margin-bottom: 0; color: #744210;">
+            <li>Only messages encrypted specifically for your public keys can be decrypted</li>
+            <li>If decryption fails, ensure the message was encrypted for one of your key IDs</li>
+            <li>Tampered or corrupted messages will fail decryption due to authentication checks</li>
+            <li>Your private keys never leave this system and are stored securely</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
