@@ -335,7 +335,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • Encryption: ML-KEM-1024 (NIST FIPS 203)");
     println!("   • Signatures: ML-DSA-87 (NIST FIPS 204)");
     println!("   • Symmetric: AES-256-GCM");
-    println!("   • Hashing: SHA3-256");
+    println!("   • Hashing: SHA3-512");
     println!();
 
     println!("📏 Key Sizes:");

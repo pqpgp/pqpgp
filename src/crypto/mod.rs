@@ -10,7 +10,7 @@
 
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Sha3_256};
+use sha3::{Digest, Sha3_512};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use subtle::ConstantTimeEq;
@@ -40,8 +40,8 @@ pub enum Algorithm {
     Mldsa87 = 101,
     /// AES-256-GCM for symmetric encryption
     Aes256Gcm = 102,
-    /// SHA3-256 for hashing
-    Sha3_256 = 103,
+    /// SHA3-512 for hashing
+    Sha3_512 = 103,
 }
 
 impl Algorithm {
@@ -51,7 +51,7 @@ impl Algorithm {
             Algorithm::Mlkem1024 => "ML-KEM-1024",
             Algorithm::Mldsa87 => "ML-DSA-87",
             Algorithm::Aes256Gcm => "AES-256-GCM",
-            Algorithm::Sha3_256 => "SHA3-256",
+            Algorithm::Sha3_512 => "SHA3-512",
         }
     }
 
@@ -61,7 +61,7 @@ impl Algorithm {
             Algorithm::Mlkem1024 => 1568, // ML-KEM-1024 public key size
             Algorithm::Mldsa87 => 2592,   // ML-DSA-87 public key size
             Algorithm::Aes256Gcm => 32,   // 256 bits
-            Algorithm::Sha3_256 => 32,    // 256 bits
+            Algorithm::Sha3_512 => 64,    // 512 bits
         }
     }
 
@@ -142,9 +142,9 @@ impl KeyUsage {
     }
 }
 
-/// Cryptographic hash function using SHA3-256
-pub fn hash_data(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha3_256::new();
+/// Cryptographic hash function using SHA3-512
+pub fn hash_data(data: &[u8]) -> [u8; 64] {
+    let mut hasher = Sha3_512::new();
     hasher.update(data);
     hasher.finalize().into()
 }
@@ -159,7 +159,7 @@ pub fn secure_random_bytes<R: CryptoRng + RngCore>(rng: &mut R, len: usize) -> V
 /// Generate a deterministic key ID from key material and metadata
 /// In PGP, key IDs are derived from the key fingerprint, not randomly generated
 pub fn generate_key_id(key_material: &[u8], algorithm: Algorithm, created: u64) -> u64 {
-    let mut hasher = sha3::Sha3_256::new();
+    let mut hasher = sha3::Sha3_512::new();
     hasher.update((algorithm as u8).to_be_bytes());
     hasher.update(created.to_be_bytes());
     hasher.update(key_material);
@@ -167,7 +167,7 @@ pub fn generate_key_id(key_material: &[u8], algorithm: Algorithm, created: u64) 
 
     // Use the last 8 bytes of the hash as the key ID (standard PGP practice)
     let mut key_id_bytes = [0u8; 8];
-    key_id_bytes.copy_from_slice(&hash[24..32]);
+    key_id_bytes.copy_from_slice(&hash[56..64]);
     u64::from_be_bytes(key_id_bytes)
 }
 
@@ -282,7 +282,7 @@ mod tests {
         let hash1 = hash_data(data);
         let hash2 = hash_data(data);
         assert_eq!(hash1, hash2);
-        assert_eq!(hash1.len(), 32);
+        assert_eq!(hash1.len(), 64);
     }
 
     #[test]

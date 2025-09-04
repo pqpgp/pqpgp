@@ -16,7 +16,7 @@
 //! - **Key Encapsulation**: ML-KEM-1024 (NIST FIPS 203)
 //! - **Digital Signatures**: ML-DSA-87 (NIST FIPS 204)
 //! - **Symmetric Encryption**: AES-256-GCM
-//! - **Hashing**: SHA3-256 (quantum-resistant)
+//! - **Hashing**: SHA3-512 (quantum-resistant)
 //!
 //! ## Examples
 //!

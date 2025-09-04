@@ -151,7 +151,7 @@ let signature = sign_message(keypair.private_key(), message, Some(&password))?;
 | Key Encapsulation | ML-KEM-1024 | FIPS 203 | 1,568 bytes |
 | Digital Signatures | ML-DSA-87 | FIPS 204 | 2,592 bytes |
 | Symmetric Encryption | AES-256-GCM | FIPS 197 | 32 bytes |
-| Hashing | SHA3-256 | FIPS 202 | 32 bytes |
+| Hashing | SHA3-512 | FIPS 202 | 64 bytes |
 | Password Hashing | Argon2id | RFC 9106 | 32 bytes |
 
 ## 🛡️ Security Testing
@@ -258,7 +258,7 @@ Current estimates suggest large-scale quantum computers capable of breaking RSA 
 ### Algorithm Selection
 
 - **ML-KEM-1024**: Provides security equivalent to AES-256 against quantum attacks
-- **ML-DSA-87**: Provides security equivalent to SHA3-256 against quantum attacks
+- **ML-DSA-87**: Provides security equivalent to SHA3-512 against quantum attacks
 - **Conservative Parameters**: Chosen for long-term security rather than minimal size
 
 ### Password Security

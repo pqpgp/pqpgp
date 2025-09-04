@@ -458,7 +458,7 @@ pub fn encode_signature(signature_data: &[u8]) -> Result<String> {
 ///
 /// This creates the traditional PGP format:
 /// -----BEGIN PGP SIGNED MESSAGE-----
-/// Hash: SHA3-256
+/// Hash: SHA3-512
 ///
 /// \[cleartext message\]
 /// -----BEGIN PGP SIGNATURE-----
@@ -469,7 +469,7 @@ pub fn create_signed_message(message: &str, signature_data: &[u8]) -> Result<Str
 
     let mut result = String::new();
     result.push_str("-----BEGIN PGP SIGNED MESSAGE-----\n");
-    result.push_str("Hash: SHA3-256\n");
+    result.push_str("Hash: SHA3-512\n");
     result.push('\n');
     result.push_str(message);
     if !message.ends_with('\n') {
@@ -758,7 +758,7 @@ SGVsbG8gV29ybGQ=
 
         // Test incomplete signed message
         let incomplete =
-            "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA3-256\n\nMessage without signature";
+            "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA3-512\n\nMessage without signature";
         assert!(parse_signed_message(incomplete).is_err());
     }
 }

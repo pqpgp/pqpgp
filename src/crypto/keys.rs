@@ -143,8 +143,8 @@ impl PublicKey {
         self.key_bytes.clone()
     }
 
-    /// Computes the fingerprint of this public key using SHA3-256
-    pub fn fingerprint(&self) -> [u8; 32] {
+    /// Computes the fingerprint of this public key using SHA3-512
+    pub fn fingerprint(&self) -> [u8; 64] {
         let mut data = Vec::new();
         data.extend_from_slice(&(self.metadata.algorithm as u8).to_be_bytes());
         data.extend_from_slice(&self.as_bytes());
@@ -465,8 +465,8 @@ mod tests {
         let fp2 = keypair2.public_key().fingerprint();
 
         assert_ne!(fp1, fp2);
-        assert_eq!(fp1.len(), 32);
-        assert_eq!(fp2.len(), 32);
+        assert_eq!(fp1.len(), 64);
+        assert_eq!(fp2.len(), 64);
     }
 
     #[test]

@@ -159,7 +159,10 @@ pub fn encrypt_message<R: CryptoRng + RngCore>(
     let (shared_secret, ciphertext) = mlkem1024::encapsulate(&public_key);
 
     // Derive AES key from the shared secret using a KDF
-    let mut aes_key_material = hash_data(shared_secret.as_bytes());
+    let hash = hash_data(shared_secret.as_bytes());
+    // Take the first 32 bytes of SHA3-512 for AES-256 key derivation
+    let mut aes_key_material = [0u8; 32];
+    aes_key_material.copy_from_slice(&hash[..32]);
 
     // Generate a random nonce for AES-GCM
     let nonce_bytes = secure_random_bytes(rng, 12); // AES-GCM nonce is 12 bytes
@@ -267,7 +270,10 @@ pub fn decrypt_message(
     let shared_secret = mlkem1024::decapsulate(&ciphertext, &secret_key);
 
     // Derive AES key from the shared secret (same as during encryption)
-    let mut aes_key_material = hash_data(shared_secret.as_bytes());
+    let hash = hash_data(shared_secret.as_bytes());
+    // Take the first 32 bytes of SHA3-512 for AES-256 key derivation
+    let mut aes_key_material = [0u8; 32];
+    aes_key_material.copy_from_slice(&hash[..32]);
 
     // Verify nonce length with validation
     Validator::validate_nonce_size(&encrypted_message.nonce, 12)?;
