@@ -17,7 +17,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label for="encrypted_message">Encrypted Message (PGP Armored):</label>
-            <textarea name="encrypted_message" id="encrypted_message" placeholder="Paste the encrypted PGP message here..." required autocomplete="off" spellcheck="false"></textarea>
+            <textarea name="encrypted_message" id="encrypted_message" placeholder="-----BEGIN PGP MESSAGE-----&#10;&#10;Paste the complete encrypted message here...&#10;&#10;-----END PGP MESSAGE-----" required autocomplete="off" spellcheck="false"></textarea>
             <small style="color: #718096; display: block; margin-top: 5px;">
                 Paste the complete PGP armored message including the -----BEGIN PGP MESSAGE----- and -----END PGP MESSAGE----- lines.
             </small>
