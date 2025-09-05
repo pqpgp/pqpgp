@@ -56,7 +56,7 @@ fn test_enhanced_decryption_timing_consistency() {
     let message = b"timing safety test message";
 
     // Create valid encrypted message for keypair1
-    let encrypted = encrypt_message(keypair1.public_key(), message, &mut rng).unwrap();
+    let encrypted = encrypt_message(keypair1.public_key(), message).unwrap();
 
     let mut correct_key_analyzer = TimingAnalyzer::new();
     let mut wrong_key_analyzer = TimingAnalyzer::new();
@@ -99,8 +99,8 @@ fn test_enhanced_decryption_timing_consistency() {
     for _ in 0..STATISTICAL_SAMPLES / 3 {
         let mut corrupted = encrypted.clone();
 
-        // Randomly corrupt different parts
-        let corruption_type = rng.gen_range(0..3);
+        // Randomly corrupt different parts that affect AEAD authentication
+        let corruption_type = rng.gen_range(0..2); // Only corrupt cryptographically significant parts
         match corruption_type {
             0 => {
                 if !corrupted.encapsulated_key.is_empty() {
@@ -108,16 +108,10 @@ fn test_enhanced_decryption_timing_consistency() {
                     corrupted.encapsulated_key[idx] ^= 0xFF;
                 }
             }
-            1 => {
+            _ => {
                 if !corrupted.encrypted_content.is_empty() {
                     let idx = rng.gen_range(0..corrupted.encrypted_content.len());
                     corrupted.encrypted_content[idx] ^= 0xFF;
-                }
-            }
-            _ => {
-                if !corrupted.nonce.is_empty() {
-                    let idx = rng.gen_range(0..corrupted.nonce.len());
-                    corrupted.nonce[idx] ^= 0xFF;
                 }
             }
         }
@@ -293,7 +287,7 @@ fn test_operation_timing_independence() {
                 // ML-KEM encryption
                 let keypair = KeyPair::generate_mlkem1024().unwrap();
                 let message = vec![0x42u8; 256];
-                let _ = encrypt_message(keypair.public_key(), &message, &mut rng);
+                let _ = encrypt_message(keypair.public_key(), &message);
             }
             1 => {
                 // ML-DSA signing

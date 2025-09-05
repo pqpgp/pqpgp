@@ -43,7 +43,6 @@ fn get_constant_time_threshold() -> f64 {
 /// Test timing consistency of encryption operations with different key sizes
 #[test]
 fn test_encryption_timing_consistency() {
-    let mut rng = OsRng;
     let mut analyzer = TimingAnalyzer::new();
 
     // Test with multiple key pairs to ensure consistency across different keys
@@ -57,7 +56,7 @@ fn test_encryption_timing_consistency() {
             // Collect timing samples
             for _ in 0..SAMPLE_SIZE / (5 * message_sizes.len()) {
                 let start = Instant::now();
-                let _encrypted = encrypt_message(keypair.public_key(), &message, &mut rng).unwrap();
+                let _encrypted = encrypt_message(keypair.public_key(), &message).unwrap();
                 let duration = start.elapsed().as_nanos();
                 analyzer.add_sample(duration);
             }
@@ -98,7 +97,7 @@ fn test_decryption_timing_side_channel_analysis() {
     let message = b"sensitive timing test message";
 
     // Create valid encrypted message
-    let valid_encrypted = encrypt_message(keypair.public_key(), message, &mut rng).unwrap();
+    let valid_encrypted = encrypt_message(keypair.public_key(), message).unwrap();
 
     let mut valid_analyzer = TimingAnalyzer::new();
     let mut invalid_analyzer = TimingAnalyzer::new();
@@ -117,8 +116,8 @@ fn test_decryption_timing_side_channel_analysis() {
     for _ in 0..SAMPLE_SIZE / 2 {
         let mut corrupted = valid_encrypted.clone();
 
-        // Systematically corrupt different parts
-        let corruption_type = rng.gen_range(0..4);
+        // Systematically corrupt different parts that affect AEAD authentication
+        let corruption_type = rng.gen_range(0..3); // Exclude nonce corruption since it's now redundant
         match corruption_type {
             0 => {
                 // Corrupt encapsulated key
@@ -132,13 +131,6 @@ fn test_decryption_timing_side_channel_analysis() {
                 if !corrupted.encrypted_content.is_empty() {
                     let idx = rng.gen_range(0..corrupted.encrypted_content.len());
                     corrupted.encrypted_content[idx] ^= rng.gen::<u8>() | 1;
-                }
-            }
-            2 => {
-                // Corrupt nonce
-                if !corrupted.nonce.is_empty() {
-                    let idx = rng.gen_range(0..corrupted.nonce.len());
-                    corrupted.nonce[idx] ^= rng.gen::<u8>() | 1;
                 }
             }
             _ => {
@@ -524,7 +516,6 @@ fn test_comprehensive_timing_analysis_report() {
     // This test runs various timing analyses and generates a report
     // It doesn't assert anything but provides visibility into timing behavior
 
-    let mut rng = OsRng;
     let keypair = KeyPair::generate_mlkem1024().unwrap();
     let message = b"comprehensive timing analysis";
 
@@ -532,7 +523,7 @@ fn test_comprehensive_timing_analysis_report() {
     let mut enc_analyzer = TimingAnalyzer::new();
     for _ in 0..100 {
         let start = Instant::now();
-        let _ = encrypt_message(keypair.public_key(), message, &mut rng);
+        let _ = encrypt_message(keypair.public_key(), message);
         enc_analyzer.add_sample(start.elapsed().as_nanos());
     }
 

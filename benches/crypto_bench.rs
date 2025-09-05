@@ -2,7 +2,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use pqpgp::crypto::{decrypt_message, encrypt_message, sign_message, verify_signature, KeyPair};
-use rand::rngs::OsRng;
 
 fn bench_key_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("key_generation");
@@ -22,7 +21,6 @@ fn bench_hybrid_operations(c: &mut Criterion) {
 
 fn bench_encryption_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("encryption_operations");
-    let mut rng = OsRng;
 
     // Pre-generate key pairs for consistent benchmarking
     let mlkem_keypair = KeyPair::generate_mlkem1024().unwrap();
@@ -36,13 +34,7 @@ fn bench_encryption_operations(c: &mut Criterion) {
     // ML-KEM-1024 encryption benchmarks
     group.throughput(Throughput::Bytes(64));
     group.bench_function("mlkem1024_encrypt_64b", |b| {
-        b.iter(|| {
-            encrypt_message(
-                black_box(mlkem_keypair.public_key()),
-                black_box(&small_msg),
-                black_box(&mut rng),
-            )
-        })
+        b.iter(|| encrypt_message(black_box(mlkem_keypair.public_key()), black_box(&small_msg)))
     });
 
     group.throughput(Throughput::Bytes(1024));
@@ -51,20 +43,13 @@ fn bench_encryption_operations(c: &mut Criterion) {
             encrypt_message(
                 black_box(mlkem_keypair.public_key()),
                 black_box(&medium_msg),
-                black_box(&mut rng),
             )
         })
     });
 
     group.throughput(Throughput::Bytes(64 * 1024));
     group.bench_function("mlkem1024_encrypt_64kb", |b| {
-        b.iter(|| {
-            encrypt_message(
-                black_box(mlkem_keypair.public_key()),
-                black_box(&large_msg),
-                black_box(&mut rng),
-            )
-        })
+        b.iter(|| encrypt_message(black_box(mlkem_keypair.public_key()), black_box(&large_msg)))
     });
 
     // Hybrid encryption benchmarks (using encryption keypair)
@@ -74,7 +59,6 @@ fn bench_encryption_operations(c: &mut Criterion) {
             encrypt_message(
                 black_box(hybrid_enc_keypair.public_key()),
                 black_box(&small_msg),
-                black_box(&mut rng),
             )
         })
     });
@@ -85,7 +69,6 @@ fn bench_encryption_operations(c: &mut Criterion) {
             encrypt_message(
                 black_box(hybrid_enc_keypair.public_key()),
                 black_box(&medium_msg),
-                black_box(&mut rng),
             )
         })
     });
@@ -96,7 +79,6 @@ fn bench_encryption_operations(c: &mut Criterion) {
             encrypt_message(
                 black_box(hybrid_enc_keypair.public_key()),
                 black_box(&large_msg),
-                black_box(&mut rng),
             )
         })
     });
@@ -106,7 +88,6 @@ fn bench_encryption_operations(c: &mut Criterion) {
 
 fn bench_decryption_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("decryption_operations");
-    let mut rng = OsRng;
 
     // Pre-generate key pairs and encrypted messages for consistent benchmarking
     let mlkem_keypair = KeyPair::generate_mlkem1024().unwrap();
@@ -116,19 +97,16 @@ fn bench_decryption_operations(c: &mut Criterion) {
     let medium_msg = vec![0u8; 1024];
     let large_msg = vec![0u8; 64 * 1024];
 
-    let mlkem_encrypted_small =
-        encrypt_message(mlkem_keypair.public_key(), &small_msg, &mut rng).unwrap();
-    let mlkem_encrypted_medium =
-        encrypt_message(mlkem_keypair.public_key(), &medium_msg, &mut rng).unwrap();
-    let mlkem_encrypted_large =
-        encrypt_message(mlkem_keypair.public_key(), &large_msg, &mut rng).unwrap();
+    let mlkem_encrypted_small = encrypt_message(mlkem_keypair.public_key(), &small_msg).unwrap();
+    let mlkem_encrypted_medium = encrypt_message(mlkem_keypair.public_key(), &medium_msg).unwrap();
+    let mlkem_encrypted_large = encrypt_message(mlkem_keypair.public_key(), &large_msg).unwrap();
 
     let hybrid_encrypted_small =
-        encrypt_message(hybrid_enc_keypair.public_key(), &small_msg, &mut rng).unwrap();
+        encrypt_message(hybrid_enc_keypair.public_key(), &small_msg).unwrap();
     let hybrid_encrypted_medium =
-        encrypt_message(hybrid_enc_keypair.public_key(), &medium_msg, &mut rng).unwrap();
+        encrypt_message(hybrid_enc_keypair.public_key(), &medium_msg).unwrap();
     let hybrid_encrypted_large =
-        encrypt_message(hybrid_enc_keypair.public_key(), &large_msg, &mut rng).unwrap();
+        encrypt_message(hybrid_enc_keypair.public_key(), &large_msg).unwrap();
 
     // ML-KEM-1024 decryption benchmarks
     group.throughput(Throughput::Bytes(64));
@@ -377,7 +355,6 @@ fn bench_verification_operations(c: &mut Criterion) {
 
 fn bench_batch_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_operations");
-    let mut rng = OsRng;
 
     // Pre-generate key pairs for batch operations
     let (enc_keypair, sig_keypair) = KeyPair::generate_hybrid().unwrap();
@@ -387,11 +364,7 @@ fn bench_batch_operations(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("batch_encrypt", 10), &10, |b, &count| {
         b.iter(|| {
             for _ in 0..count {
-                let _ = encrypt_message(
-                    black_box(enc_keypair.public_key()),
-                    black_box(&message),
-                    black_box(&mut rng),
-                );
+                let _ = encrypt_message(black_box(enc_keypair.public_key()), black_box(&message));
             }
         })
     });

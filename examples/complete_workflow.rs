@@ -15,7 +15,6 @@ use pqpgp::{
     crypto::{decrypt_message, encrypt_message, sign_message, verify_signature, KeyPair},
     keyring::KeyringManager,
 };
-use rand::rngs::OsRng;
 use std::fs;
 use tempfile::TempDir;
 
@@ -27,8 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup temporary directory for this example
     let temp_dir = TempDir::new()?;
     let keyring_path = temp_dir.path();
-
-    let mut rng = OsRng;
 
     // Step 1: Generate hybrid key pairs for Alice and Bob
     println!("📊 Step 1: Generating post-quantum key pairs...");
@@ -163,11 +160,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔒 Step 4: Alice encrypts the signed message for Bob...");
 
     // Encrypt the signed message armor (this is what gets transmitted)
-    let encrypted_message = encrypt_message(
-        bob_enc_key.public_key(),
-        signed_message_armor.as_bytes(),
-        &mut rng,
-    )?;
+    let encrypted_message =
+        encrypt_message(bob_enc_key.public_key(), signed_message_armor.as_bytes())?;
     println!("✅ Signed message encrypted using ML-KEM-1024");
 
     // Serialize and armor the encrypted message
@@ -309,7 +303,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .get_key(alice_enc_key.key_id())
             .expect("Alice's key not found in Charlie's keyring");
 
-        encrypt_message(&alice_entry.public_key, test_message, &mut rng)?
+        encrypt_message(&alice_entry.public_key, test_message)?
     };
 
     // Alice can decrypt Charlie's message

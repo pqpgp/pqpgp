@@ -9,7 +9,6 @@ use crate::{
     keyring::KeyringManager,
     Result,
 };
-use rand::rngs::OsRng;
 use std::fs;
 use std::path::Path;
 use std::process;
@@ -177,8 +176,7 @@ pub fn encrypt(recipient: &str, input_file: &Path, output_file: &Path) -> Result
     let message = read_file(input_file)?;
 
     // Encrypt message
-    let mut rng = OsRng;
-    let encrypted = crate::crypto::encrypt_message(recipient_key, &message, &mut rng)?;
+    let encrypted = crate::crypto::encrypt_message(recipient_key, &message)?;
 
     // Serialize and armor
     let serialized = bincode::serialize(&encrypted).map_err(|e| {

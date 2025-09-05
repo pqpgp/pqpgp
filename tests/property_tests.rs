@@ -23,7 +23,7 @@ fn property_encryption_decryption_roundtrip() {
         rng.fill(&mut message[..]);
 
         // Property: encrypt(m) -> decrypt -> m
-        if let Ok(encrypted) = encrypt_message(keypair.public_key(), &message, &mut rng) {
+        if let Ok(encrypted) = encrypt_message(keypair.public_key(), &message) {
             match decrypt_message(keypair.private_key(), &encrypted, None) {
                 Ok(decrypted) => {
                     assert_eq!(

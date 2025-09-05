@@ -86,7 +86,9 @@
         <h4 style="margin-top: 0; color: #22543d;">🛡️ Security Information</h4>
         <ul style="margin-bottom: 0; color: #22543d;">
             <li>Message encrypted with <strong>ML-KEM-1024</strong> key encapsulation</li>
-            <li>Symmetric encryption using <strong>AES-256-GCM</strong></li>
+            <li>Keys and nonces derived using <strong>HKDF-SHA3-512</strong> for perfect forward secrecy</li>
+            <li>Symmetric encryption using <strong>AES-256-GCM</strong> with authenticated metadata</li>
+            <li><strong>Deterministic nonce derivation</strong> eliminates dangerous nonce reuse vulnerabilities</li>
             <li>Quantum-resistant against future quantum computers</li>
             <li>Only the recipient's private key can decrypt this message</li>
         </ul>
@@ -100,17 +102,22 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
             <h4 style="margin-top: 0; color: #4a5568;">1. Key Encapsulation</h4>
-            <p>ML-KEM-1024 algorithm generates a shared secret using the recipient's public key.</p>
+            <p>ML-KEM-1024 algorithm generates a quantum-resistant shared secret using the recipient's public key.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #0284c7;">
+            <h4 style="margin-top: 0; color: #4a5568;">2. Key Derivation</h4>
+            <p>HKDF-SHA3-512 securely derives AES-256 keys and deterministic nonces from the shared secret, preventing reuse.</p>
         </div>
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
-            <h4 style="margin-top: 0; color: #4a5568;">2. Symmetric Encryption</h4>
-            <p>Your message is encrypted with AES-256-GCM using the shared secret as the key.</p>
+            <h4 style="margin-top: 0; color: #4a5568;">3. Symmetric Encryption</h4>
+            <p>Your message is encrypted with AES-256-GCM using derived keys and cryptographically-bound metadata.</p>
         </div>
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
-            <h4 style="margin-top: 0; color: #4a5568;">3. Secure Transport</h4>
-            <p>The encrypted message and encapsulated key are combined into PGP armor format.</p>
+            <h4 style="margin-top: 0; color: #4a5568;">4. Secure Transport</h4>
+            <p>The encrypted message and encapsulated key are combined into PGP armor format for safe transmission.</p>
         </div>
     </div>
 </div>

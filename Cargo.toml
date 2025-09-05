@@ -9,6 +9,10 @@ repository = "https://github.com/pqpgp/pqpgp"
 keywords = ["cryptography", "post-quantum", "pgp", "encryption", "security"]
 categories = ["cryptography", "command-line-utilities"]
 
+[features]
+# Enable detailed error messages in debug builds (disabled by default for security)
+debug-errors = []
+
 [dependencies]
 # Post-quantum cryptography - using maintained implementations
 pqcrypto-mlkem = "0.1.1"   # ML-KEM (Module-Lattice-Based Key-Encapsulation Mechanism) implementation
@@ -18,6 +22,7 @@ pqcrypto-traits = "0.3.5"  # Common traits for PQC operations
 # Traditional cryptography for hybrid approach
 aes-gcm = "0.10.3"         # AES-GCM for symmetric encryption
 sha3 = "0.10.8"            # SHA3 for quantum-resistant hashing
+hkdf = "0.12.4"            # HMAC-based Key Derivation Function
 rand = "0.8.5"             # Cryptographically secure random number generation
 subtle = "2.5"             # Constant-time operations for security
 zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing

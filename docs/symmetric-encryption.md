@@ -98,8 +98,10 @@ let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref())?;
 // 1. Derive same AES key from shared secret
 let aes_key = derive_aes_key_from_shared_secret(&shared_secret);
 
-// 2. Extract nonce from encrypted message
-let nonce = Nonce::from_slice(&encrypted_message.nonce);
+// 2. Derive nonce deterministically from ciphertext (HKDF)
+let mut nonce_bytes = [0u8; 12];
+hk.expand(b"PQPGP-v1 AES-GCM nonce", &mut nonce_bytes)?;
+let nonce = Nonce::from_slice(&nonce_bytes);
 
 // 3. Decrypt and verify authentication
 let cipher = Aes256Gcm::new(&aes_key);

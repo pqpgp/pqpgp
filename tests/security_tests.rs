@@ -10,19 +10,17 @@ use pqpgp::{
     validation::{RateLimit, RateLimiter, Validator, MAX_MESSAGE_SIZE},
     PqpgpError,
 };
-use rand::rngs::OsRng;
 use std::time::Duration;
 
 #[test]
 fn test_oversized_message_rejected() {
-    let mut rng = OsRng;
     let keypair = KeyPair::generate_mlkem1024().unwrap();
 
     // Create a message that exceeds the maximum size
     let oversized_message = vec![0u8; MAX_MESSAGE_SIZE + 1];
 
     // This should fail with validation error
-    let result = encrypt_message(keypair.public_key(), &oversized_message, &mut rng);
+    let result = encrypt_message(keypair.public_key(), &oversized_message);
     assert!(result.is_err());
 
     match result.unwrap_err() {

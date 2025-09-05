@@ -6,14 +6,11 @@
 //! Run with: cargo run --example basic_usage
 
 use pqpgp::crypto::{decrypt_message, encrypt_message, sign_message, verify_signature, KeyPair};
-use rand::rngs::OsRng;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Basic PQPGP Usage Example");
     println!("============================");
     println!();
-
-    let mut rng = OsRng;
 
     // Generate key pairs
     println!("📊 Step 1: Generating post-quantum key pairs...");
@@ -34,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Encrypt
-    let encrypted = encrypt_message(encryption_keypair.public_key(), message, &mut rng)?;
+    let encrypted = encrypt_message(encryption_keypair.public_key(), message)?;
     println!("🔒 Message encrypted with ML-KEM-1024");
 
     // Decrypt

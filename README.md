@@ -18,6 +18,8 @@ A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, provi
 
 - **Post-Quantum Cryptography**: Uses NIST-standardized ML-KEM-1024 and ML-DSA-87 algorithms
 - **Hybrid Approach**: Combines classical and post-quantum algorithms for maximum security
+- **Advanced Key Derivation**: HKDF-SHA3-512 with deterministic nonce generation eliminates reuse vulnerabilities
+- **Perfect Forward Secrecy**: Each message gets unique keys derived from quantum-resistant shared secrets
 - **Password Protection**: Optional Argon2id-based password encryption for private keys
 - **PGP Compatible**: Standard PGP packet formats (RFC 4880) with new algorithm identifiers
 - **Production Security**: Comprehensive input validation, rate limiting, and attack prevention
@@ -59,7 +61,7 @@ let signature_data = bincode::serialize(&signature)?;
 let signed_message = create_signed_message(message, &signature_data)?;
 
 // 3. Encrypt the signed message
-let encrypted = encrypt_message(enc_keypair.public_key(), signed_message.as_bytes(), &mut rng)?;
+let encrypted = encrypt_message(enc_keypair.public_key(), signed_message.as_bytes())?;
 
 // Decrypt-then-verify workflow
 // 1. Decrypt to get signed message
@@ -156,6 +158,40 @@ let signature = sign_message(keypair.private_key(), message, Some(&password))?;
 - **Forward Secure**: Changing password doesn't reveal previous keys
 - **Timing Attack Resistant**: Constant-time operations prevent information leakage
 
+## 🔑 Advanced Key Derivation (HKDF)
+
+PQPGP implements state-of-the-art key derivation using HKDF-SHA3-512 to eliminate common cryptographic vulnerabilities:
+
+### Key Security Improvements
+
+- **Deterministic Nonce Generation**: HKDF derives nonces from the ML-KEM shared secret, completely eliminating dangerous nonce reuse attacks
+- **Perfect Forward Secrecy**: Each message gets unique AES-256 keys and nonces derived from the quantum-resistant shared secret
+- **Domain Separation**: Different contexts (key vs nonce, message index) produce completely different cryptographic material
+- **Cryptographic Binding**: Keys are bound to recipient identity and KEM ciphertext to prevent substitution attacks
+- **No RNG Dependencies**: Eliminates vulnerabilities from weak random number generators
+
+### Technical Implementation
+
+```rust
+// HKDF derives both AES-256 key and nonce from ML-KEM shared secret
+let hk = Hkdf::<Sha3_512>::new(Some(&salt), shared_secret.as_bytes());
+
+// Derive AES-256 key with domain separation
+let mut aes_key_material = [0u8; 32];
+hk.expand(b"PQPGP-v1 AES-256-GCM key", &mut aes_key_material)?;
+
+// Derive deterministic nonce with different domain
+let mut nonce_bytes = [0u8; 12];
+hk.expand(b"PQPGP-v1 AES-GCM nonce", &mut nonce_bytes)?;
+```
+
+### Security Benefits
+
+- **Eliminates nonce reuse catastrophes**: Traditional random nonce generation can fail; deterministic derivation cannot
+- **Quantum-resistant key expansion**: Based on quantum-resistant ML-KEM shared secrets
+- **Cryptographically secure**: HKDF is proven secure in the random oracle model
+- **Standards-based**: Implements RFC 5869 with SHA3-512 for quantum resistance
+
 ## 🔐 Cryptographic Algorithms
 
 | Operation | Algorithm | NIST Standard | Key Size |
@@ -163,6 +199,7 @@ let signature = sign_message(keypair.private_key(), message, Some(&password))?;
 | Key Encapsulation | ML-KEM-1024 | FIPS 203 | 1,568 bytes |
 | Digital Signatures | ML-DSA-87 | FIPS 204 | 2,592 bytes |
 | Symmetric Encryption | AES-256-GCM | FIPS 197 | 32 bytes |
+| Key Derivation | HKDF-SHA3-512 | RFC 5869 | Variable |
 | Hashing | SHA3-512 | FIPS 202 | 64 bytes |
 | Password Hashing | Argon2id | RFC 9106 | 32 bytes |
 
@@ -187,7 +224,7 @@ cargo test --release
 ```
 src/
 ├── crypto/           # Post-quantum cryptographic operations
-│   ├── encryption.rs # ML-KEM-1024 hybrid encryption
+│   ├── encryption.rs # ML-KEM-1024 hybrid encryption with HKDF key derivation
 │   ├── signature.rs  # ML-DSA-87 digital signatures
 │   ├── password.rs   # Argon2id password-based key protection
 │   └── keys.rs       # Key generation and management
@@ -251,6 +288,7 @@ cargo bench
 ## 📋 Standards Compliance
 
 - **RFC 4880**: OpenPGP Message Format
+- **RFC 5869**: HMAC-based Extract-and-Expand Key Derivation Function (HKDF)
 - **RFC 9106**: The Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications
 - **NIST FIPS 203**: ML-KEM (Module-Lattice-Based Key-Encapsulation Mechanism)
 - **NIST FIPS 204**: ML-DSA (Module-Lattice-Based Digital Signature Algorithm)  

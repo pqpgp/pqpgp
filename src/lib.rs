@@ -38,12 +38,10 @@
 //!
 //! ```rust,no_run
 //! use pqpgp::crypto::{KeyPair, encrypt_message, decrypt_message};
-//! use rand::rngs::OsRng;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut rng = OsRng;
 //! let keypair = KeyPair::generate_mlkem1024()?;
 //! let message = b"Secret post-quantum message";
-//! let encrypted = encrypt_message(keypair.public_key(), message, &mut rng)?;
+//! let encrypted = encrypt_message(keypair.public_key(), message)?;
 //! let decrypted = decrypt_message(keypair.private_key(), &encrypted, None)?;
 //! assert_eq!(message, &decrypted[..]);
 //! # Ok(())

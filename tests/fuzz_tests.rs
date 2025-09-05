@@ -101,8 +101,7 @@ fn fuzz_message_sizes() {
         let message = vec![42u8; size];
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut local_rng = OsRng;
-            let _ = encrypt_message(keypair.public_key(), &message, &mut local_rng);
+            let _ = encrypt_message(keypair.public_key(), &message);
         }));
 
         assert!(
@@ -331,8 +330,7 @@ fn fuzz_concurrent_operations() {
                     let message = vec![42u8; message_size];
 
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let mut thread_rng = OsRng;
-                        let _ = encrypt_message(keypair.public_key(), &message, &mut thread_rng);
+                        let _ = encrypt_message(keypair.public_key(), &message);
                     }));
 
                     assert!(result.is_ok(), "Concurrent encryption panicked");

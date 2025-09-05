@@ -9,14 +9,11 @@ use pqpgp::{
     crypto::{decrypt_message, encrypt_message, sign_message, verify_signature, KeyPair},
     keyring::KeyringManager,
 };
-use rand::rngs::OsRng;
 use tempfile::TempDir;
 
 /// Test complete end-to-end encryption and decryption workflow
 #[test]
 fn test_end_to_end_encryption() {
-    let mut rng = OsRng;
-
     // Generate Bob's key pair for encryption test
     let bob_keypair = KeyPair::generate_mlkem1024().expect("Failed to generate Bob's key pair");
 
@@ -24,7 +21,7 @@ fn test_end_to_end_encryption() {
     let original_message = b"This is a secret post-quantum message from Alice to Bob!";
 
     // Alice encrypts a message for Bob
-    let encrypted = encrypt_message(bob_keypair.public_key(), original_message, &mut rng)
+    let encrypted = encrypt_message(bob_keypair.public_key(), original_message)
         .expect("Failed to encrypt message");
 
     // Bob decrypts the message
@@ -60,8 +57,6 @@ fn test_end_to_end_signing() {
 /// Test hybrid cryptography workflow (different keys for encryption and signing)
 #[test]
 fn test_hybrid_cryptography_workflow() {
-    let mut rng = OsRng;
-
     // Generate hybrid key pairs for Alice
     let (_alice_kem_keypair, alice_dsa_keypair) =
         KeyPair::generate_hybrid().expect("Failed to generate Alice's hybrid key pairs");
@@ -73,8 +68,8 @@ fn test_hybrid_cryptography_workflow() {
     let message = b"Secret message with authentication";
 
     // Alice encrypts for Bob and signs with her own key
-    let encrypted = encrypt_message(bob_kem_keypair.public_key(), message, &mut rng)
-        .expect("Failed to encrypt message");
+    let encrypted =
+        encrypt_message(bob_kem_keypair.public_key(), message).expect("Failed to encrypt message");
 
     let signature = sign_message(alice_dsa_keypair.private_key(), message, None)
         .expect("Failed to sign message");
@@ -92,8 +87,6 @@ fn test_hybrid_cryptography_workflow() {
 /// Test ASCII armor encoding and decoding integration
 #[test]
 fn test_armor_integration() {
-    let mut rng = OsRng;
-
     // Generate a key pair
     let keypair = KeyPair::generate_mlkem1024().expect("Failed to generate key pair");
 
@@ -101,8 +94,8 @@ fn test_armor_integration() {
     let message = b"Test message for armor integration";
 
     // Encrypt message
-    let encrypted = encrypt_message(keypair.public_key(), message, &mut rng)
-        .expect("Failed to encrypt message");
+    let encrypted =
+        encrypt_message(keypair.public_key(), message).expect("Failed to encrypt message");
 
     // Serialize and armor the encrypted message
     let serialized = bincode::serialize(&encrypted).expect("Failed to serialize encrypted message");
@@ -185,8 +178,6 @@ fn test_secure_communication_scenario() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let keyring_path = temp_dir.path();
 
-    let mut rng = OsRng;
-
     // Setup: Alice and Bob generate hybrid key pairs
     let (alice_enc_keypair, alice_sign_keypair) =
         KeyPair::generate_hybrid().expect("Failed to generate Alice's hybrid keys");
@@ -263,8 +254,8 @@ fn test_secure_communication_scenario() {
         .expect("Failed to sign message");
 
     // Alice encrypts the message for Bob
-    let encrypted = encrypt_message(bob_enc_keypair.public_key(), message, &mut rng)
-        .expect("Failed to encrypt message");
+    let encrypted =
+        encrypt_message(bob_enc_keypair.public_key(), message).expect("Failed to encrypt message");
 
     // Simulate transmission (serialize and armor both)
     let encrypted_serialized =
@@ -316,8 +307,6 @@ fn test_secure_communication_scenario() {
 /// Test large message handling
 #[test]
 fn test_large_message_handling() {
-    let mut rng = OsRng;
-
     // Generate key pair
     let keypair = KeyPair::generate_mlkem1024().expect("Failed to generate key pair");
 
@@ -325,7 +314,7 @@ fn test_large_message_handling() {
     let large_message: Vec<u8> = (0..1_000_000).map(|i| (i % 256) as u8).collect();
 
     // Encrypt large message
-    let encrypted = encrypt_message(keypair.public_key(), &large_message, &mut rng)
+    let encrypted = encrypt_message(keypair.public_key(), &large_message)
         .expect("Failed to encrypt large message");
 
     // Decrypt large message
@@ -350,8 +339,6 @@ fn test_key_export_import_workflow() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let keyring1_path = temp_dir.path().join("keyring1");
     let keyring2_path = temp_dir.path().join("keyring2");
-
-    let mut rng = OsRng;
 
     // Create first keyring with a key
     let mut keyring1 = KeyringManager::with_directory(&keyring1_path);
@@ -388,7 +375,7 @@ fn test_key_export_import_workflow() {
 
     // Verify we can encrypt with the imported key and decrypt with the original
     let message = b"Test message for import/export";
-    let encrypted = encrypt_message(&imported_key.public_key, message, &mut rng)
+    let encrypted = encrypt_message(&imported_key.public_key, message)
         .expect("Failed to encrypt with imported key");
     let decrypted = decrypt_message(keypair.private_key(), &encrypted, None)
         .expect("Failed to decrypt with original key");

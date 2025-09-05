@@ -10,6 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Maximum allowed message size (100MB)
+///
+/// This limit prevents memory exhaustion attacks and ensures reasonable memory usage.
+/// For larger data, applications should implement chunking using `encrypt_messages()`.
 pub const MAX_MESSAGE_SIZE: usize = 100 * 1024 * 1024;
 
 /// Maximum allowed encrypted message size (110MB to account for overhead)

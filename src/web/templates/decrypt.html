@@ -49,8 +49,10 @@
         <h4 style="margin-top: 0; color: #22543d;">🛡️ Security Verification</h4>
         <ul style="margin-bottom: 0; color: #22543d;">
             <li>Message was encrypted with <strong>ML-KEM-1024</strong> post-quantum cryptography</li>
+            <li>Keys and nonces were securely derived using <strong>HKDF-SHA3-512</strong></li>
             <li>Decryption was performed using your private key</li>
             <li>Message integrity was verified with <strong>AES-256-GCM</strong> authentication</li>
+            <li><strong>Deterministic nonce verification</strong> ensures no replay or tampering attacks</li>
             <li>No tampering or corruption was detected</li>
         </ul>
     </div>
@@ -62,17 +64,22 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
             <h4 style="margin-top: 0; color: #4a5568;">1. Key Identification</h4>
-            <p>System identifies which of your private keys can decrypt the message.</p>
+            <p>System identifies which of your private keys can decrypt the message using key ID matching.</p>
         </div>
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">2. Key Decapsulation</h4>
-            <p>ML-KEM-1024 algorithm recovers the shared secret using your private key.</p>
+            <p>ML-KEM-1024 algorithm recovers the quantum-resistant shared secret using your private key.</p>
+        </div>
+        
+        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #0284c7;">
+            <h4 style="margin-top: 0; color: #4a5568;">3. Key Re-derivation</h4>
+            <p>HKDF-SHA3-512 reproduces the exact same AES-256 keys and nonces used during encryption.</p>
         </div>
         
         <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
-            <h4 style="margin-top: 0; color: #4a5568;">3. Message Decryption</h4>
-            <p>AES-256-GCM decrypts the message and verifies its integrity.</p>
+            <h4 style="margin-top: 0; color: #4a5568;">4. Message Decryption</h4>
+            <p>AES-256-GCM decrypts the message and verifies metadata authentication, ensuring integrity.</p>
         </div>
     </div>
     

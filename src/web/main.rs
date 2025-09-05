@@ -13,7 +13,6 @@ use pqpgp::{
     cli::utils::create_keyring_manager,
     crypto::{sign_message as crypto_sign_message, Algorithm, KeyPair, Password},
 };
-use rand::rngs::OsRng;
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -856,7 +855,6 @@ async fn encrypt_message(
     );
 
     // Prepare message for encryption (sign first if requested)
-    let mut rng = OsRng;
     let message_to_encrypt = if let Some(signing_key_id) = &form.data.signing_key {
         if !signing_key_id.is_empty() {
             // Parse signing key ID
@@ -1015,26 +1013,25 @@ async fn encrypt_message(
     };
 
     // Encrypt the message (signed or original)
-    let encrypted =
-        match pqpgp::crypto::encrypt_message(recipient_key, &message_to_encrypt, &mut rng) {
-            Ok(enc) => enc,
-            Err(e) => {
-                error!("Encryption failed: {:?}", e);
-                let csrf_token = get_csrf_token(&session, &csrf_store)
-                    .await
-                    .unwrap_or_default();
-                let template = create_error_template(
-                    "Encryption failed due to a cryptographic error. Please try again.".to_string(),
-                    &all_entries,
-                    csrf_token,
-                );
-                return Ok(Html(
-                    template
-                        .render()
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-                ));
-            }
-        };
+    let encrypted = match pqpgp::crypto::encrypt_message(recipient_key, &message_to_encrypt) {
+        Ok(enc) => enc,
+        Err(e) => {
+            error!("Encryption failed: {:?}", e);
+            let csrf_token = get_csrf_token(&session, &csrf_store)
+                .await
+                .unwrap_or_default();
+            let template = create_error_template(
+                "Encryption failed due to a cryptographic error. Please try again.".to_string(),
+                &all_entries,
+                csrf_token,
+            );
+            return Ok(Html(
+                template
+                    .render()
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            ));
+        }
+    };
 
     // Serialize and armor
     let serialized = match bincode::serialize(&encrypted) {
