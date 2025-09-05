@@ -15,7 +15,7 @@ A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, provi
 ### Installation
 
 ```bash
-git clone https://github.com/pqpgp/pqpgp
+git clone https://github.com/dihmeetree/pqpgp
 cd pqpgp
 cargo build --release
 ```
