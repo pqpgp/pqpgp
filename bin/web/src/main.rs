@@ -11,7 +11,10 @@ use axum::{
 use pqpgp::{
     armor::{create_signed_message, decode, encode, ArmorType},
     cli::utils::create_keyring_manager,
-    crypto::{sign_message as crypto_sign_message, Algorithm, KeyPair, Password},
+    crypto::{
+        decrypt_message, encrypt_message, sign_message, verify_signature, Algorithm, KeyPair,
+        Password,
+    },
 };
 use serde::Deserialize;
 use tokio::net::TcpListener;
@@ -96,10 +99,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/keys/export/:key_id", get(export_public_key))
         .route("/keys/view/:key_id", get(view_public_key))
         .route("/keys/import", post(import_public_key))
-        .route("/encrypt", get(encrypt_page).post(encrypt_message))
-        .route("/decrypt", get(decrypt_page).post(decrypt_message))
-        .route("/sign", get(sign_page).post(sign_message))
-        .route("/verify", get(verify_page).post(verify_signature))
+        .route("/encrypt", get(encrypt_page).post(encrypt_handler))
+        .route("/decrypt", get(decrypt_page).post(decrypt_handler))
+        .route("/sign", get(sign_page).post(sign_handler))
+        .route("/verify", get(verify_page).post(verify_handler))
         .nest_service("/static", ServeDir::new("src/web/static"))
         .layer(session_layer)
         .with_state(csrf_store);
@@ -745,7 +748,7 @@ async fn encrypt_page(
 
 /// Encrypt a message
 #[instrument(skip(form), fields(recipient = %form.data.recipient, message_len = form.data.message.len()))]
-async fn encrypt_message(
+async fn encrypt_handler(
     State(csrf_store): State<CsrfStore>,
     session: Session,
     Form(form): Form<CsrfProtectedForm<EncryptForm>>,
@@ -935,29 +938,26 @@ async fn encrypt_message(
                 .map(|p| Password::new(p.clone()));
 
             // Sign the message
-            let signature = match crypto_sign_message(
-                private_key,
-                form.data.message.as_bytes(),
-                password.as_ref(),
-            ) {
-                Ok(sig) => sig,
-                Err(e) => {
-                    error!("Failed to sign message: {:?}", e);
-                    let csrf_token = get_csrf_token(&session, &csrf_store)
-                        .await
-                        .unwrap_or_default();
-                    let template = create_error_template(
-                        "Failed to sign message. Please try again.".to_string(),
-                        &all_entries,
-                        csrf_token,
-                    );
-                    return Ok(Html(
-                        template
-                            .render()
-                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-                    ));
-                }
-            };
+            let signature =
+                match sign_message(private_key, form.data.message.as_bytes(), password.as_ref()) {
+                    Ok(sig) => sig,
+                    Err(e) => {
+                        error!("Failed to sign message: {:?}", e);
+                        let csrf_token = get_csrf_token(&session, &csrf_store)
+                            .await
+                            .unwrap_or_default();
+                        let template = create_error_template(
+                            "Failed to sign message. Please try again.".to_string(),
+                            &all_entries,
+                            csrf_token,
+                        );
+                        return Ok(Html(
+                            template
+                                .render()
+                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                        ));
+                    }
+                };
 
             // Serialize signature
             let signature_data = match bincode::serialize(&signature) {
@@ -1013,7 +1013,7 @@ async fn encrypt_message(
     };
 
     // Encrypt the message (signed or original)
-    let encrypted = match pqpgp::crypto::encrypt_message(recipient_key, &message_to_encrypt) {
+    let encrypted = match encrypt_message(recipient_key, &message_to_encrypt) {
         Ok(enc) => enc,
         Err(e) => {
             error!("Encryption failed: {:?}", e);
@@ -1146,7 +1146,7 @@ async fn decrypt_page(
 
 /// Decrypt a message
 #[instrument(skip(form), fields(encrypted_message_len = form.data.encrypted_message.len()))]
-async fn decrypt_message(
+async fn decrypt_handler(
     State(csrf_store): State<CsrfStore>,
     session: Session,
     Form(form): Form<CsrfProtectedForm<DecryptForm>>,
@@ -1288,8 +1288,7 @@ async fn decrypt_message(
     for (key_id, private_key) in entries_with_private.iter() {
         if *key_id == encrypted_message.recipient_key_id() {
             info!("Trying exact match key ID: {:016X}", key_id);
-            match pqpgp::crypto::decrypt_message(private_key, &encrypted_message, password.as_ref())
-            {
+            match decrypt_message(private_key, &encrypted_message, password.as_ref()) {
                 Ok(message) => {
                     info!(
                         "Successfully decrypted message with key ID: {:016X}",
@@ -1315,11 +1314,7 @@ async fn decrypt_message(
         for (key_id, private_key) in entries_with_private {
             if key_id != encrypted_message.recipient_key_id() {
                 info!("Trying key ID: {:016X}", key_id);
-                match pqpgp::crypto::decrypt_message(
-                    private_key,
-                    &encrypted_message,
-                    password.as_ref(),
-                ) {
+                match decrypt_message(private_key, &encrypted_message, password.as_ref()) {
                     Ok(message) => {
                         info!(
                             "Successfully decrypted message with key ID: {:016X}",
@@ -1442,7 +1437,7 @@ async fn sign_page(
 
 /// Sign a message
 #[instrument(skip(form), fields(key_id = %form.data.key_id, message_len = form.data.message.len()))]
-async fn sign_message(
+async fn sign_handler(
     State(csrf_store): State<CsrfStore>,
     session: Session,
     Form(form): Form<CsrfProtectedForm<SignForm>>,
@@ -1559,11 +1554,8 @@ async fn sign_message(
     info!("Found private key for signing key ID: {:016X}", key_id);
 
     // Sign message
-    let signature = match pqpgp::crypto::sign_message(
-        private_key,
-        form.data.message.as_bytes(),
-        password.as_ref(),
-    ) {
+    let signature = match sign_message(private_key, form.data.message.as_bytes(), password.as_ref())
+    {
         Ok(sig) => sig,
         Err(e) => {
             error!("Signing failed for key ID {:016X}: {:?}", key_id, e);
@@ -1687,7 +1679,7 @@ async fn verify_page(
 
 /// Verify a signature
 #[instrument(skip(form), fields(message_len = form.data.message.len(), signature_len = form.data.signature.len()))]
-async fn verify_signature(
+async fn verify_handler(
     State(csrf_store): State<CsrfStore>,
     session: Session,
     Form(form): Form<CsrfProtectedForm<VerifyForm>>,
@@ -1804,7 +1796,7 @@ async fn verify_signature(
 
     // Verify signature
     let verification_result =
-        pqpgp::crypto::verify_signature(verifying_key, form.data.message.as_bytes(), &signature);
+        verify_signature(verifying_key, form.data.message.as_bytes(), &signature);
     let is_valid = verification_result.is_ok();
 
     if let Err(e) = &verification_result {

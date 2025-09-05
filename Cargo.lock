@@ -1281,9 +1281,6 @@ version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "argon2",
- "askama",
- "askama_axum",
- "axum",
  "bincode",
  "criterion",
  "hex",
@@ -1296,10 +1293,26 @@ dependencies = [
  "rand 0.8.5",
  "rpassword",
  "serde",
- "serde_urlencoded",
  "sha3",
  "subtle",
  "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
+name = "pqpgp-web"
+version = "0.0.1"
+dependencies = [
+ "askama",
+ "askama_axum",
+ "axum",
+ "bincode",
+ "pqpgp",
+ "serde",
+ "serde_urlencoded",
  "thiserror",
  "tokio",
  "tower 0.4.13",
@@ -1308,7 +1321,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "zeroize",
 ]
 
 [[package]]

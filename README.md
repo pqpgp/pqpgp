@@ -107,11 +107,22 @@ assert_eq!(message, original_message);
 PQPGP also provides a web interface for easy key management and cryptographic operations:
 
 ```bash
+# Build both CLI and web interface
+cargo build --release
+
 # Start the web server
 ./target/release/pqpgp-web
 
 # The interface will be available at http://localhost:3000
 ```
+
+The web interface is now a separate binary with its own dependencies, providing better separation of concerns:
+
+**Benefits of Separate Web Binary:**
+- 🚀 **Faster CLI builds** - Core library doesn't include web dependencies
+- 🔧 **Modular architecture** - Web and CLI can evolve independently  
+- 📦 **Smaller deployments** - Deploy only the components you need
+- 🛡️ **Security isolation** - Web-specific dependencies don't affect core crypto
 
 The web interface provides:
 - Key generation and management
@@ -219,6 +230,7 @@ cargo test --release
 
 ## 📦 Architecture
 
+### Core Library Structure
 ```
 src/
 ├── crypto/           # Post-quantum cryptographic operations
@@ -230,8 +242,22 @@ src/
 ├── validation/       # Security validation and rate limiting
 ├── keyring/          # Key storage and management
 ├── armor/            # ASCII armor encoding/decoding + signed message parsing
-├── cli/              # Command-line interface
-└── web/              # Web interface for browser-based operations
+└── cli/              # Command-line interface
+```
+
+### Web Interface (Separate Binary)
+```
+bin/web/
+├── Cargo.toml        # Web-specific dependencies (axum, askama, etc.)
+└── src/
+    ├── main.rs       # Web server and HTTP handlers
+    ├── csrf.rs       # CSRF protection
+    ├── templates.rs  # Askama template definitions
+    └── templates/    # HTML templates with HKDF documentation
+```
+
+### Testing & Examples
+```
 examples/             # Usage examples and demonstrations
 tests/                # Comprehensive test suite
 ├── security_tests.rs # Security validation tests
@@ -259,13 +285,16 @@ For comprehensive technical analysis, examples, and comparison with traditional 
 ### Building
 
 ```bash
-# Debug build
-cargo build
-
-# Release build
+# Build core library and CLI
 cargo build --release
 
-# Run tests
+# Build web interface (separate binary)
+cargo build -p pqpgp-web --release
+
+# Build everything in the workspace
+cargo build --release --workspace
+
+# Run tests (core library)
 cargo test --release
 
 # Run security tests
@@ -274,7 +303,7 @@ cargo test --release adversarial
 cargo test --release fuzz
 
 # Check code quality
-cargo clippy -- -D warnings
+cargo clippy --workspace -- -D warnings
 ```
 
 ### Performance Benchmarks
