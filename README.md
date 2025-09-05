@@ -1,4 +1,16 @@
-# PQPGP - Post-Quantum Pretty Good Privacy
+```bash
+ /$$$$$$$   /$$$$$$  /$$$$$$$   /$$$$$$  /$$$$$$$ 
+| $$__  $$ /$$__  $$| $$__  $$ /$$__  $$| $$__  $$
+| $$  \ $$| $$  \ $$| $$  \ $$| $$  \__/| $$  \ $$
+| $$$$$$$/| $$  | $$| $$$$$$$/| $$ /$$$$| $$$$$$$/
+| $$____/ | $$  | $$| $$____/ | $$|_  $$| $$____/ 
+| $$      | $$/$$ $$| $$      | $$  \ $$| $$      
+| $$      |  $$$$$$/| $$      |  $$$$$$/| $$      
+|__/       \____ $$$|__/       \______/ |__/      
+                \__/                              
+```
+
+# Post-Quantum Pretty Good Privacy
 
 A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, providing quantum-resistant cryptographic operations while maintaining compatibility with standard PGP workflows and packet formats.
 
