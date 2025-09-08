@@ -16,17 +16,31 @@
     {% if has_result %}
         <div class="alert alert-success">
             <strong>✅ Success!</strong> {{ result.as_ref().unwrap() }}
-            {% if signature_found %}
-                <div style="margin-top: 15px;">
-                    <a href="/files/download" class="btn btn-small">📥 Download Decrypted File</a>
-                </div>
-            {% endif %}
+            <div style="margin-top: 15px;">
+                <a href="/files/download" class="btn btn-small">📥 Download Decrypted File</a>
+            </div>
         </div>
         
         {% if signature_found %}
             <div class="card">
                 <h3>🔏 Digital Signature Found</h3>
                 <p><strong>Signed by:</strong> <span class="key-id">{{ signer_info.as_ref().unwrap() }}</span></p>
+        {% else %}
+            <div class="card" style="border-left: 4px solid #f59e0b; background-color: #fffbeb;">
+                <h3 style="color: #92400e;">⚠️ No Digital Signature Found</h3>
+                <div style="background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 10px; margin: 15px 0;">
+                    <p style="margin: 0; color: #92400e; font-weight: 500;">
+                        <strong>Security Notice:</strong> This file was not digitally signed during encryption.
+                    </p>
+                    <p style="margin: 6px 0 0 0; color: #92400e;">
+                        Without a digital signature, you cannot verify the file's authenticity or confirm who encrypted it. 
+                        For maximum security, always request that senders sign their encrypted files.
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+        
+        {% if signature_found %}
                 
                 {% if signature_verified.is_some() %}
                     <div style="margin: 15px 0; padding: 15px; border-radius: 8px; {% if signature_verified.unwrap() %}background-color: #c6f6d5; border: 1px solid #9ae6b4;{% else %}background-color: #fed7d7; border: 1px solid #feb2b2;{% endif %}">
