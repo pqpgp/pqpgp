@@ -2137,76 +2137,77 @@ async fn decrypt_file_handler(
     mut multipart: Multipart,
 ) -> std::result::Result<axum::response::Response, StatusCode> {
     // Helper function to create error template
-    let create_error_template = |error_msg: String, csrf_token: String| -> Result<Html<String>, StatusCode> {
-        let keyring = match create_keyring_manager() {
-            Ok(kr) => kr,
-            Err(_) => {
-                let template = FilesTemplate {
-                    recipients: vec![],
-                    signing_keys: vec![],
-                    result: None,
-                    error: Some("Failed to access key storage".to_string()),
-                    has_result: false,
-                    has_error: true,
-                    signature_found: false,
-                    signature_armored: None,
-                    signer_info: None,
-                    signature_verified: None,
-                    verification_message: None,
-                    active_page: "files".to_string(),
-                    csrf_token,
-                };
-                return Ok(Html(
-                    template
-                        .render()
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-                ));
-            }
+    let create_error_template =
+        |error_msg: String, csrf_token: String| -> Result<Html<String>, StatusCode> {
+            let keyring = match create_keyring_manager() {
+                Ok(kr) => kr,
+                Err(_) => {
+                    let template = FilesTemplate {
+                        recipients: vec![],
+                        signing_keys: vec![],
+                        result: None,
+                        error: Some("Failed to access key storage".to_string()),
+                        has_result: false,
+                        has_error: true,
+                        signature_found: false,
+                        signature_armored: None,
+                        signer_info: None,
+                        signature_verified: None,
+                        verification_message: None,
+                        active_page: "files".to_string(),
+                        csrf_token,
+                    };
+                    return Ok(Html(
+                        template
+                            .render()
+                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                    ));
+                }
+            };
+
+            let entries = keyring.list_all_keys();
+            let recipients: Vec<RecipientInfo> = entries
+                .iter()
+                .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem1024)
+                .map(|(key_id, entry, _)| RecipientInfo {
+                    key_id: format!("{:016X}", key_id),
+                    user_id: entry.user_ids.first().cloned().unwrap_or_default(),
+                })
+                .collect();
+
+            let signing_keys: Vec<SigningKeyInfo> = entries
+                .iter()
+                .filter(|(_, entry, has_private)| {
+                    *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
+                })
+                .map(|(key_id, entry, _)| SigningKeyInfo {
+                    key_id: format!("{:016X}", key_id),
+                    user_id: entry.user_ids.first().cloned().unwrap_or_default(),
+                })
+                .collect();
+
+            let template = FilesTemplate {
+                recipients,
+                signing_keys,
+                result: None,
+                error: Some(error_msg),
+                has_result: false,
+                has_error: true,
+                signature_found: false,
+                signature_armored: None,
+                signer_info: None,
+                signature_verified: None,
+                verification_message: None,
+                active_page: "files".to_string(),
+                csrf_token,
+            };
+
+            Ok(Html(
+                template
+                    .render()
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            ))
         };
-
-        let entries = keyring.list_all_keys();
-        let recipients: Vec<RecipientInfo> = entries
-            .iter()
-            .filter(|(_, entry, _)| entry.public_key.algorithm() == Algorithm::Mlkem1024)
-            .map(|(key_id, entry, _)| RecipientInfo {
-                key_id: format!("{:016X}", key_id),
-                user_id: entry.user_ids.first().cloned().unwrap_or_default(),
-            })
-            .collect();
-
-        let signing_keys: Vec<SigningKeyInfo> = entries
-            .iter()
-            .filter(|(_, entry, has_private)| {
-                *has_private && entry.public_key.algorithm() == Algorithm::Mldsa87
-            })
-            .map(|(key_id, entry, _)| SigningKeyInfo {
-                key_id: format!("{:016X}", key_id),
-                user_id: entry.user_ids.first().cloned().unwrap_or_default(),
-            })
-            .collect();
-
-        let template = FilesTemplate {
-            recipients,
-            signing_keys,
-            result: None,
-            error: Some(error_msg),
-            has_result: false,
-            has_error: true,
-            signature_found: false,
-            signature_armored: None,
-            signer_info: None,
-            signature_verified: None,
-            verification_message: None,
-            active_page: "files".to_string(),
-            csrf_token,
-        };
-
-        Ok(Html(
-            template
-                .render()
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        ))
-    };
 
     let keyring = match create_keyring_manager() {
         Ok(kr) => kr,
@@ -2216,7 +2217,8 @@ async fn decrypt_file_handler(
                 .await
                 .unwrap_or_default();
             let html = create_error_template(
-                "Failed to access key storage. Please check your keyring configuration.".to_string(),
+                "Failed to access key storage. Please check your keyring configuration."
+                    .to_string(),
                 csrf_token,
             )?;
             return Ok(html.into_response());
@@ -2271,7 +2273,9 @@ async fn decrypt_file_handler(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let csrf_token = get_csrf_token(&session, &csrf_store).await.unwrap_or_default();
+    let csrf_token = get_csrf_token(&session, &csrf_store)
+        .await
+        .unwrap_or_default();
 
     if file_data.is_empty() {
         error!("No file provided for decryption");
@@ -2397,7 +2401,8 @@ async fn decrypt_file_handler(
     if decrypted_data.len() < offset + 4 {
         error!("Corrupted encrypted file data");
         let html = create_error_template(
-            "The decrypted file data appears to be corrupted or in an unexpected format.".to_string(),
+            "The decrypted file data appears to be corrupted or in an unexpected format."
+                .to_string(),
             csrf_token.clone(),
         )?;
         return Ok(html.into_response());
@@ -2414,7 +2419,8 @@ async fn decrypt_file_handler(
     if decrypted_data.len() < offset + filename_len {
         error!("Corrupted encrypted file data");
         let html = create_error_template(
-            "The decrypted file data appears to be corrupted or in an unexpected format.".to_string(),
+            "The decrypted file data appears to be corrupted or in an unexpected format."
+                .to_string(),
             csrf_token.clone(),
         )?;
         return Ok(html.into_response());
@@ -2427,7 +2433,8 @@ async fn decrypt_file_handler(
     if decrypted_data.len() < offset + 8 {
         error!("Corrupted encrypted file data");
         let html = create_error_template(
-            "The decrypted file data appears to be corrupted or in an unexpected format.".to_string(),
+            "The decrypted file data appears to be corrupted or in an unexpected format."
+                .to_string(),
             csrf_token.clone(),
         )?;
         return Ok(html.into_response());
@@ -2448,7 +2455,8 @@ async fn decrypt_file_handler(
     if decrypted_data.len() < offset + file_data_len {
         error!("Corrupted encrypted file data");
         let html = create_error_template(
-            "The decrypted file data appears to be corrupted or in an unexpected format.".to_string(),
+            "The decrypted file data appears to be corrupted or in an unexpected format."
+                .to_string(),
             csrf_token.clone(),
         )?;
         return Ok(html.into_response());
@@ -2593,18 +2601,29 @@ async fn decrypt_file_handler(
                                 let signer_entry = all_entries
                                     .iter()
                                     .find(|(key_id, _, _)| *key_id == signature.key_id);
-                                
+
                                 match signer_entry {
                                     Some((_, entry, _)) => {
                                         // Verify the signature against the original file data
-                                        match pqpgp::crypto::verify_signature(&entry.public_key, original_file_data, &signature) {
+                                        match pqpgp::crypto::verify_signature(
+                                            &entry.public_key,
+                                            original_file_data,
+                                            &signature,
+                                        ) {
                                             Ok(()) => {
                                                 info!("File signature verification successful");
-                                                let user_id = entry.user_ids.first().cloned().unwrap_or_default();
+                                                let user_id = entry
+                                                    .user_ids
+                                                    .first()
+                                                    .cloned()
+                                                    .unwrap_or_default();
                                                 (Some(true), Some(format!("✅ Signature is VALID and authentic (signed by {} with Key ID: {:016X})", user_id, signature.key_id)))
                                             }
                                             Err(e) => {
-                                                warn!("File signature verification failed: {:?}", e);
+                                                warn!(
+                                                    "File signature verification failed: {:?}",
+                                                    e
+                                                );
                                                 (Some(false), Some(format!("❌ Signature is INVALID or corrupted (Key ID: {:016X})", signature.key_id)))
                                             }
                                         }
@@ -2627,7 +2646,7 @@ async fn decrypt_file_handler(
                     }
                 }
             }
-            None => (None, None)
+            None => (None, None),
         }
     } else {
         (None, None)
