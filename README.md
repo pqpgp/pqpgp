@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/AMhsQhq.png" alt="PQPGP" width="850">
+  <img src="https://i.imgur.com/oLnowXC.png" alt="PQPGP" width="850">
 </p>
 
 A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, providing quantum-resistant cryptographic operations while maintaining compatibility with standard PGP workflows and packet formats.
