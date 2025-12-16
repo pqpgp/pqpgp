@@ -1,6 +1,7 @@
 //! Web server binary for PQPGP - provides a web interface for post-quantum cryptographic operations.
 
 use askama::Template;
+use axum::http::{header, HeaderValue};
 use axum::{
     extract::{Form, Multipart, Path as AxumPath, Query, State},
     http::StatusCode,
@@ -16,13 +17,12 @@ use pqpgp::{
         Password,
     },
 };
+use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
-use serde::Deserialize;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
-use axum::http::{header, HeaderValue};
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 use tracing::{error, info, instrument, warn};
 use tracing_subscriber::EnvFilter;
@@ -152,7 +152,10 @@ async fn forum_sync_task(persistence: SharedForumPersistence) {
             .unwrap_or(FORUM_SYNC_INTERVAL_SECS),
     );
 
-    info!("Forum sync task started with {}s interval", interval.as_secs());
+    info!(
+        "Forum sync task started with {}s interval",
+        interval.as_secs()
+    );
 
     loop {
         tokio::time::sleep(interval).await;
@@ -176,7 +179,11 @@ async fn forum_sync_task(persistence: SharedForumPersistence) {
             match forum_handlers::sync_forum(&persistence, &forum_hash).await {
                 Ok(count) => {
                     if count > 0 {
-                        info!("Synced {} new node(s) for forum {}", count, forum_hash.short());
+                        info!(
+                            "Synced {} new node(s) for forum {}",
+                            count,
+                            forum_hash.short()
+                        );
                     }
                 }
                 Err(e) => {
@@ -202,7 +209,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if let Some(ref url) = relay_url {
         info!("Using relay server at: {}", url);
     } else {
-        info!("Using default relay server at: {}", relay_client::DEFAULT_RELAY_URL);
+        info!(
+            "Using default relay server at: {}",
+            relay_client::DEFAULT_RELAY_URL
+        );
     }
 
     // Initialize CSRF store, chat state manager, and relay client
@@ -211,11 +221,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let relay_client = create_relay_client(relay_url);
 
     // Initialize forum persistence using RocksDB
-    let forum_data_path = std::env::var("PQPGP_FORUM_DATA")
-        .unwrap_or_else(|_| "pqpgp_web_forum_data".to_string());
+    let forum_data_path =
+        std::env::var("PQPGP_FORUM_DATA").unwrap_or_else(|_| "pqpgp_web_forum_data".to_string());
     let forum_persistence = Arc::new(
         WebForumPersistence::with_data_dir(&forum_data_path)
-            .expect("Failed to initialize forum persistence")
+            .expect("Failed to initialize forum persistence"),
     );
     info!("Forum data stored in: {}", forum_data_path);
 
@@ -255,7 +265,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/files/download", get(download_decrypted_file))
         .route("/chat", get(chat_page))
         .route("/chat/add-contact", post(add_chat_contact))
-        .route("/chat/delete-contact/:fingerprint", post(delete_chat_contact))
+        .route(
+            "/chat/delete-contact/:fingerprint",
+            post(delete_chat_contact),
+        )
         .route("/chat/send", post(send_chat_message))
         .route("/chat/generate-identity", post(generate_chat_identity))
         .route("/chat/unlock-identity", post(unlock_chat_identity))
@@ -263,25 +276,80 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/chat/fetch-messages", post(fetch_relay_messages))
         .route("/chat/users", get(list_relay_users))
         // Forum routes
-        .route("/forum", get(forum_handlers::forum_list_page).post(forum_handlers::create_forum_handler))
+        .route(
+            "/forum",
+            get(forum_handlers::forum_list_page).post(forum_handlers::create_forum_handler),
+        )
         .route("/forum/join", post(forum_handlers::join_forum_handler))
         .route("/forum/:forum_hash", get(forum_handlers::forum_view_page))
-        .route("/forum/:forum_hash/board/create", post(forum_handlers::create_board_handler))
-        .route("/forum/:forum_hash/moderator/add", post(forum_handlers::add_moderator_handler))
-        .route("/forum/:forum_hash/moderator/remove", post(forum_handlers::remove_moderator_handler))
-        .route("/forum/:forum_hash/board/:board_hash", get(forum_handlers::board_view_page))
-        .route("/forum/:forum_hash/board/:board_hash/moderator/add", post(forum_handlers::add_board_moderator_handler))
-        .route("/forum/:forum_hash/board/:board_hash/moderator/remove", post(forum_handlers::remove_board_moderator_handler))
-        .route("/forum/:forum_hash/board/:board_hash/thread/create", post(forum_handlers::create_thread_handler))
-        .route("/forum/:forum_hash/thread/:thread_hash", get(forum_handlers::thread_view_page))
-        .route("/forum/:forum_hash/thread/:thread_hash/reply", post(forum_handlers::post_reply_handler))
-        .route("/forum/:forum_hash/thread/:thread_hash/hide", post(forum_handlers::hide_thread_handler))
-        .route("/forum/:forum_hash/thread/:thread_hash/hide_post", post(forum_handlers::hide_post_handler))
-        .route("/forum/:forum_hash/edit", post(forum_handlers::edit_forum_handler))
-        .route("/forum/:forum_hash/remove", post(forum_handlers::remove_forum_handler))
-        .route("/forum/:forum_hash/board/:board_hash/edit", post(forum_handlers::edit_board_handler))
-        .route("/forum/:forum_hash/board/:board_hash/hide", post(forum_handlers::hide_board_handler))
-        .route("/forum/:forum_hash/board/:board_hash/unhide", post(forum_handlers::unhide_board_handler))
+        .route(
+            "/forum/:forum_hash/board/create",
+            post(forum_handlers::create_board_handler),
+        )
+        .route(
+            "/forum/:forum_hash/moderator/add",
+            post(forum_handlers::add_moderator_handler),
+        )
+        .route(
+            "/forum/:forum_hash/moderator/remove",
+            post(forum_handlers::remove_moderator_handler),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash",
+            get(forum_handlers::board_view_page),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash/moderator/add",
+            post(forum_handlers::add_board_moderator_handler),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash/moderator/remove",
+            post(forum_handlers::remove_board_moderator_handler),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash/thread/create",
+            post(forum_handlers::create_thread_handler),
+        )
+        .route(
+            "/forum/:forum_hash/thread/:thread_hash",
+            get(forum_handlers::thread_view_page),
+        )
+        .route(
+            "/forum/:forum_hash/thread/:thread_hash/reply",
+            post(forum_handlers::post_reply_handler),
+        )
+        .route(
+            "/forum/:forum_hash/thread/:thread_hash/hide",
+            post(forum_handlers::hide_thread_handler),
+        )
+        .route(
+            "/forum/:forum_hash/thread/:thread_hash/hide_post",
+            post(forum_handlers::hide_post_handler),
+        )
+        .route(
+            "/forum/:forum_hash/thread/:thread_hash/move",
+            post(forum_handlers::move_thread_handler),
+        )
+        .route(
+            "/forum/:forum_hash/edit",
+            post(forum_handlers::edit_forum_handler),
+        )
+        .route(
+            "/forum/:forum_hash/remove",
+            post(forum_handlers::remove_forum_handler),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash/edit",
+            post(forum_handlers::edit_board_handler),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash/hide",
+            post(forum_handlers::hide_board_handler),
+        )
+        .route(
+            "/forum/:forum_hash/board/:board_hash/unhide",
+            post(forum_handlers::unhide_board_handler),
+        )
         .nest_service("/static", ServeDir::new("src/web/static"))
         .layer(session_layer)
         // Security headers to prevent common attacks
@@ -383,10 +451,12 @@ async fn list_keys(
         })
         .collect();
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = KeysTemplate {
         keys,
@@ -938,10 +1008,12 @@ async fn encrypt_page(
         signing_keys.len()
     );
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = EncryptTemplate {
         recipients,
@@ -1320,10 +1392,12 @@ async fn encrypt_handler(
         })
         .collect();
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = EncryptTemplate {
         recipients,
@@ -1346,10 +1420,12 @@ async fn decrypt_page(
     State(app_state): State<AppState>,
     session: Session,
 ) -> std::result::Result<Html<String>, StatusCode> {
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = DecryptTemplate {
         active_page: "decrypt".to_string(),
@@ -1574,10 +1650,12 @@ async fn decrypt_handler(
 
     let has_result = decrypted.is_some();
     let has_error = error.is_some();
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = DecryptTemplate {
         result: decrypted,
@@ -1640,10 +1718,12 @@ async fn sign_page(
 
     info!("Sign page loaded with {} signing keys", signing_keys.len());
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = SignTemplate {
         signing_keys,
@@ -1866,10 +1946,12 @@ async fn sign_handler(
         })
         .collect();
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = SignTemplate {
         signing_keys,
@@ -1891,10 +1973,12 @@ async fn verify_page(
     State(app_state): State<AppState>,
     session: Session,
 ) -> std::result::Result<Html<String>, StatusCode> {
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = VerifyTemplate {
         active_page: "verify".to_string(),
@@ -2041,10 +2125,12 @@ async fn verify_handler(
         if is_valid { "VALID" } else { "INVALID" }
     );
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = VerifyTemplate {
         is_valid: Some(is_valid),
@@ -2126,10 +2212,12 @@ async fn files_page(
         signing_keys.len()
     );
 
-    let csrf_token = get_csrf_token(&session, &app_state.csrf_store).await.map_err(|_| {
-        error!("Failed to generate CSRF token");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|_| {
+            error!("Failed to generate CSRF token");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let template = FilesTemplate {
         recipients,
@@ -3185,7 +3273,10 @@ async fn send_chat_message(
             error!("Failed to acquire chat states lock: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        match chat_states.get(&session_id).and_then(|s| s.our_fingerprint()) {
+        match chat_states
+            .get(&session_id)
+            .and_then(|s| s.our_fingerprint())
+        {
             Some(fp) => fp,
             None => {
                 error!("No identity configured");
@@ -3195,7 +3286,11 @@ async fn send_chat_message(
     };
 
     // Fetch any pending messages from the remote relay before sending
-    let incoming_messages = match app_state.relay_client.fetch_messages(&our_fingerprint).await {
+    let incoming_messages = match app_state
+        .relay_client
+        .fetch_messages(&our_fingerprint)
+        .await
+    {
         Ok(msgs) => msgs,
         Err(e) => {
             error!("Failed to fetch messages from relay: {:?}", e);
@@ -3231,7 +3326,8 @@ async fn send_chat_message(
                 }
             };
 
-            if let Err(e) = chat_state.receive_message(&relayed_msg.sender_fingerprint, &encrypted_msg)
+            if let Err(e) =
+                chat_state.receive_message(&relayed_msg.sender_fingerprint, &encrypted_msg)
             {
                 error!("Failed to decrypt message: {:?}", e);
             }
@@ -3268,11 +3364,7 @@ async fn send_chat_message(
     if let Some(encrypted_data) = encrypted_data_result? {
         if let Err(e) = app_state
             .relay_client
-            .send_message(
-                our_fingerprint,
-                form.data.recipient.clone(),
-                encrypted_data,
-            )
+            .send_message(our_fingerprint, form.data.recipient.clone(), encrypted_data)
             .await
         {
             error!("Failed to send message via relay: {:?}", e);
@@ -3487,14 +3579,21 @@ async fn fetch_relay_messages(
             error!("Failed to acquire chat states lock: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        match chat_states.get(&session_id).and_then(|s| s.our_fingerprint()) {
+        match chat_states
+            .get(&session_id)
+            .and_then(|s| s.our_fingerprint())
+        {
             Some(fp) => fp,
             None => return Ok(Redirect::to(&redirect_url)),
         }
     };
 
     // Fetch messages from remote relay server
-    let messages = match app_state.relay_client.fetch_messages(&our_fingerprint).await {
+    let messages = match app_state
+        .relay_client
+        .fetch_messages(&our_fingerprint)
+        .await
+    {
         Ok(msgs) => msgs,
         Err(e) => {
             error!("Failed to fetch messages from relay: {:?}", e);

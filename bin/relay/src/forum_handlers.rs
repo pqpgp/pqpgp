@@ -17,13 +17,13 @@ use axum::{
     Json,
 };
 use pqpgp::crypto::PublicKey;
+use pqpgp::forum::permissions::ForumPermissions;
+use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{
     validate_node, ContentHash, DagNode, ExportForumResponse, FetchNodesRequest,
     FetchNodesResponse, SerializedNode, SubmitNodeRequest, SubmitNodeResponse, SyncRequest,
     SyncResponse, ValidationContext,
 };
-use pqpgp::forum::permissions::ForumPermissions;
-use pqpgp::forum::types::current_timestamp_millis;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -35,7 +35,9 @@ use tracing::{error, info, instrument, warn};
 
 /// Acquires a read lock on the state, recovering from poison if necessary.
 /// Returns the guard, clearing the poisoned state if one was present.
-fn acquire_read_lock(state: &RwLock<PersistentForumState>) -> RwLockReadGuard<'_, PersistentForumState> {
+fn acquire_read_lock(
+    state: &RwLock<PersistentForumState>,
+) -> RwLockReadGuard<'_, PersistentForumState> {
     state.read().unwrap_or_else(|poisoned| {
         error!("RwLock was poisoned on read, recovering");
         poisoned.into_inner()
@@ -44,7 +46,9 @@ fn acquire_read_lock(state: &RwLock<PersistentForumState>) -> RwLockReadGuard<'_
 
 /// Acquires a write lock on the state, recovering from poison if necessary.
 /// Returns the guard, clearing the poisoned state if one was present.
-fn acquire_write_lock(state: &RwLock<PersistentForumState>) -> RwLockWriteGuard<'_, PersistentForumState> {
+fn acquire_write_lock(
+    state: &RwLock<PersistentForumState>,
+) -> RwLockWriteGuard<'_, PersistentForumState> {
     state.write().unwrap_or_else(|poisoned| {
         error!("RwLock was poisoned on write, recovering");
         poisoned.into_inner()
@@ -128,10 +132,7 @@ fn validate_content_limits(node: &DagNode) -> Option<String> {
                 ));
             }
             if board.tags().len() > MAX_TAGS_COUNT {
-                return Some(format!(
-                    "Board has too many tags (max {})",
-                    MAX_TAGS_COUNT
-                ));
+                return Some(format!("Board has too many tags (max {})", MAX_TAGS_COUNT));
             }
             for tag in board.tags() {
                 if tag.len() > MAX_TAG_LENGTH {
@@ -303,10 +304,7 @@ pub async fn create_forum(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(ForumApiResponse::error(format!(
-                    "Invalid node data: {}",
-                    e
-                ))),
+                Json(ForumApiResponse::error(format!("Invalid node data: {}", e))),
             );
         }
     };
@@ -350,16 +348,17 @@ pub async fn create_forum(
     let mut relay = acquire_write_lock(&state);
     match relay.create_forum(genesis.clone()) {
         Ok(hash) => {
-            info!("Created forum '{}' with hash {}", genesis.name(), hash.short());
+            info!(
+                "Created forum '{}' with hash {}",
+                genesis.name(),
+                hash.short()
+            );
             (
                 StatusCode::CREATED,
                 Json(ForumApiResponse::success_with_hash("Forum created", &hash)),
             )
         }
-        Err(e) => (
-            StatusCode::CONFLICT,
-            Json(ForumApiResponse::error(e)),
-        ),
+        Err(e) => (StatusCode::CONFLICT, Json(ForumApiResponse::error(e))),
     }
 }
 
@@ -460,10 +459,7 @@ pub async fn fetch_nodes(
             request.hashes.len(),
             MAX_FETCH_BATCH_SIZE
         );
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(FetchNodesResponse::new()),
-        );
+        return (StatusCode::BAD_REQUEST, Json(FetchNodesResponse::new()));
     }
 
     // Deduplicate requested hashes
@@ -538,7 +534,11 @@ pub async fn submit_node(
 
     // Validate content size limits BEFORE cryptographic validation (cheaper check first)
     if let Some(error) = validate_content_limits(&node) {
-        warn!("Node {} rejected for content limits: {}", node_hash.short(), error);
+        warn!(
+            "Node {} rejected for content limits: {}",
+            node_hash.short(),
+            error
+        );
         return (
             StatusCode::BAD_REQUEST,
             Json(SubmitNodeResponse::rejected(error)),
@@ -579,11 +579,7 @@ pub async fn submit_node(
 
     match validation_result {
         Ok(result) if !result.is_valid => {
-            warn!(
-                "Node {} rejected: {:?}",
-                node_hash.short(),
-                result.errors
-            );
+            warn!("Node {} rejected: {:?}", node_hash.short(), result.errors);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(SubmitNodeResponse::rejected(format!(
@@ -618,7 +614,10 @@ pub async fn submit_node(
             } else {
                 info!("Node {} already exists", node_hash.short());
             }
-            (StatusCode::OK, Json(SubmitNodeResponse::accepted(node_hash)))
+            (
+                StatusCode::OK,
+                Json(SubmitNodeResponse::accepted(node_hash)),
+            )
         }
         Err(e) => {
             warn!("Failed to add node {}: {}", node_hash.short(), e);
@@ -675,7 +674,10 @@ pub async fn export_forum(
     };
 
     // Enforce page size limits
-    let page_size = params.page_size.unwrap_or(MAX_EXPORT_PAGE_SIZE).min(MAX_EXPORT_PAGE_SIZE);
+    let page_size = params
+        .page_size
+        .unwrap_or(MAX_EXPORT_PAGE_SIZE)
+        .min(MAX_EXPORT_PAGE_SIZE);
     let page = params.page;
     // Use checked arithmetic to prevent integer overflow
     let skip = match page.checked_mul(page_size) {
@@ -757,8 +759,12 @@ pub async fn list_boards(
                 let board_hash = board.hash();
                 Some(BoardInfo {
                     hash: board_hash.to_hex(),
-                    name: forum.effective_board_name(board_hash).unwrap_or_else(|| board.name().to_string()),
-                    description: forum.effective_board_description(board_hash).unwrap_or_else(|| board.description().to_string()),
+                    name: forum
+                        .effective_board_name(board_hash)
+                        .unwrap_or_else(|| board.name().to_string()),
+                    description: forum
+                        .effective_board_description(board_hash)
+                        .unwrap_or_else(|| board.description().to_string()),
                     tags: board.tags().to_vec(),
                     created_at: board.created_at(),
                 })
@@ -843,14 +849,20 @@ pub async fn list_board_moderators(
     let forum_hash = match ContentHash::from_hex(&forum_hash_hex) {
         Ok(h) => h,
         Err(_) => {
-            return (StatusCode::BAD_REQUEST, Json(Vec::<BoardModeratorInfo>::new()));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(Vec::<BoardModeratorInfo>::new()),
+            );
         }
     };
 
     let board_hash = match ContentHash::from_hex(&board_hash_hex) {
         Ok(h) => h,
         Err(_) => {
-            return (StatusCode::BAD_REQUEST, Json(Vec::<BoardModeratorInfo>::new()));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(Vec::<BoardModeratorInfo>::new()),
+            );
         }
     };
 
@@ -1050,4 +1062,3 @@ pub struct PostInfo {
     pub quote_hash: Option<String>,
     pub created_at: u64,
 }
-

@@ -77,8 +77,9 @@ impl HeaderKey {
 
     /// Encrypts a header.
     pub fn encrypt(&self, header: &MessageHeader) -> Result<EncryptedHeader> {
-        let plaintext = bincode::serialize(header)
-            .map_err(|e| PqpgpError::serialization(format!("Header serialization failed: {}", e)))?;
+        let plaintext = bincode::serialize(header).map_err(|e| {
+            PqpgpError::serialization(format!("Header serialization failed: {}", e))
+        })?;
 
         // Use a random nonce for header encryption
         let mut nonce_bytes = [0u8; 12];
@@ -222,18 +223,16 @@ mod tests {
         let key = HeaderKey::from_bytes([42u8; HEADER_KEY_SIZE]);
 
         let keypair = RatchetKeyPair::generate();
-        let header = MessageHeader::new(
-            &keypair.public,
-            5,
-            3,
-            Some(vec![1, 2, 3, 4, 5]),
-        );
+        let header = MessageHeader::new(&keypair.public, 5, 3, Some(vec![1, 2, 3, 4, 5]));
 
         let encrypted = key.encrypt(&header).unwrap();
         let decrypted = key.decrypt(&encrypted).unwrap();
 
         assert_eq!(header.message_number, decrypted.message_number);
-        assert_eq!(header.previous_chain_length, decrypted.previous_chain_length);
+        assert_eq!(
+            header.previous_chain_length,
+            decrypted.previous_chain_length
+        );
         assert_eq!(header.ratchet_key, decrypted.ratchet_key);
         assert_eq!(header.kem_ciphertext, decrypted.kem_ciphertext);
     }

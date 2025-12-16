@@ -11,8 +11,12 @@
 //! - `heads`: `{forum_hash}` -> serialized Vec<ContentHash> (DAG heads)
 //! - `meta`: `forum_list` -> list of all synced forum hashes
 
-use pqpgp::forum::{BoardGenesis, ContentHash, DagNode, ModAction, ModActionNode, Post, ThreadRoot};
-use rocksdb::{BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, MultiThreaded, Options};
+use pqpgp::forum::{
+    BoardGenesis, ContentHash, DagNode, ModAction, ModActionNode, Post, ThreadRoot,
+};
+use rocksdb::{
+    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, MultiThreaded, Options,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -199,8 +203,8 @@ impl WebForumPersistence {
         metadata: &ForumMetadata,
     ) -> Result<(), String> {
         let cf = self.cf(CF_FORUMS)?;
-        let value =
-            bincode::serialize(metadata).map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+        let value = bincode::serialize(metadata)
+            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
 
         self.db
             .put_cf(&cf, forum_hash.as_bytes(), &value)
@@ -253,8 +257,8 @@ impl WebForumPersistence {
     ) -> Result<(), String> {
         let cf = self.cf(CF_HEADS)?;
         let heads_vec: Vec<ContentHash> = heads.iter().copied().collect();
-        let value =
-            bincode::serialize(&heads_vec).map_err(|e| format!("Failed to serialize heads: {}", e))?;
+        let value = bincode::serialize(&heads_vec)
+            .map_err(|e| format!("Failed to serialize heads: {}", e))?;
 
         self.db
             .put_cf(&cf, forum_hash.as_bytes(), &value)
@@ -353,7 +357,11 @@ impl WebForumPersistence {
         // Remove from forum list
         let cf_meta = self.cf(CF_META)?;
         let forums = self.list_forums()?;
-        let filtered: Vec<_> = forums.iter().filter(|h| *h != forum_hash).copied().collect();
+        let filtered: Vec<_> = forums
+            .iter()
+            .filter(|h| *h != forum_hash)
+            .copied()
+            .collect();
         let value = bincode::serialize(&filtered)
             .map_err(|e| format!("Failed to serialize forum list: {}", e))?;
         self.db
@@ -386,16 +394,30 @@ impl WebForumPersistence {
     }
 
     /// Gets all threads in a board, sorted by creation time (newest first).
+    ///
+    /// This accounts for moved threads: threads that were originally in another board
+    /// but have been moved to this board will be included, and threads that were
+    /// originally in this board but have been moved elsewhere will be excluded.
     pub fn get_threads(
         &self,
         forum_hash: &ContentHash,
         board_hash: &ContentHash,
     ) -> Result<Vec<ThreadRoot>, String> {
         let nodes = self.load_forum_nodes(forum_hash)?;
+
+        // Get the map of moved threads (thread_hash -> current_board_hash)
+        let moved_threads = self.get_moved_threads(forum_hash)?;
+
         let mut threads: Vec<ThreadRoot> = nodes
             .into_iter()
             .filter_map(|n| n.as_thread_root().cloned())
-            .filter(|t| t.board_hash() == board_hash)
+            .filter(|t| {
+                // Check if thread has been moved
+                let current_board = moved_threads
+                    .get(t.hash())
+                    .unwrap_or_else(|| t.board_hash());
+                current_board == board_hash
+            })
             .collect();
 
         // Sort by created_at descending (newest first)
@@ -552,7 +574,10 @@ impl WebForumPersistence {
     }
 
     /// Gets set of hidden thread hashes.
-    pub fn get_hidden_threads(&self, forum_hash: &ContentHash) -> Result<HashSet<ContentHash>, String> {
+    pub fn get_hidden_threads(
+        &self,
+        forum_hash: &ContentHash,
+    ) -> Result<HashSet<ContentHash>, String> {
         let nodes = self.load_forum_nodes(forum_hash)?;
 
         let mut hidden: HashSet<ContentHash> = HashSet::new();
@@ -582,7 +607,10 @@ impl WebForumPersistence {
     }
 
     /// Gets set of hidden post hashes.
-    pub fn get_hidden_posts(&self, forum_hash: &ContentHash) -> Result<HashSet<ContentHash>, String> {
+    pub fn get_hidden_posts(
+        &self,
+        forum_hash: &ContentHash,
+    ) -> Result<HashSet<ContentHash>, String> {
         let nodes = self.load_forum_nodes(forum_hash)?;
 
         let mut hidden: HashSet<ContentHash> = HashSet::new();
@@ -612,7 +640,10 @@ impl WebForumPersistence {
     }
 
     /// Gets set of hidden board hashes.
-    pub fn get_hidden_boards(&self, forum_hash: &ContentHash) -> Result<HashSet<ContentHash>, String> {
+    pub fn get_hidden_boards(
+        &self,
+        forum_hash: &ContentHash,
+    ) -> Result<HashSet<ContentHash>, String> {
         let nodes = self.load_forum_nodes(forum_hash)?;
 
         let mut hidden: HashSet<ContentHash> = HashSet::new();
@@ -639,6 +670,38 @@ impl WebForumPersistence {
         }
 
         Ok(hidden)
+    }
+
+    /// Gets map of moved threads (thread_hash -> current_board_hash).
+    ///
+    /// MoveThread actions update the board that a thread belongs to.
+    /// The most recent MoveThread action for each thread determines its current board.
+    pub fn get_moved_threads(
+        &self,
+        forum_hash: &ContentHash,
+    ) -> Result<HashMap<ContentHash, ContentHash>, String> {
+        let nodes = self.load_forum_nodes(forum_hash)?;
+
+        // Get all MoveThread actions sorted by timestamp
+        let mut move_actions: Vec<&ModActionNode> = nodes
+            .iter()
+            .filter_map(|n| n.as_mod_action())
+            .filter(|m| m.action() == ModAction::MoveThread)
+            .collect();
+        move_actions.sort_by_key(|m| m.created_at());
+
+        // Build map of thread -> current board (last move wins)
+        let mut moved: HashMap<ContentHash, ContentHash> = HashMap::new();
+
+        for action in move_actions {
+            if let (Some(thread_hash), Some(dest_board_hash)) =
+                (action.target_node_hash(), action.board_hash())
+            {
+                moved.insert(*thread_hash, *dest_board_hash);
+            }
+        }
+
+        Ok(moved)
     }
 }
 

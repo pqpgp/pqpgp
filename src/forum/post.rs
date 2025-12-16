@@ -160,8 +160,13 @@ impl Post {
         author_private_key: &crate::crypto::PrivateKey,
         password: Option<&crate::crypto::Password>,
     ) -> Result<Self> {
-        let content =
-            PostContent::new(thread_hash, parent_hashes, body, quote_hash, author_public_key)?;
+        let content = PostContent::new(
+            thread_hash,
+            parent_hashes,
+            body,
+            quote_hash,
+            author_public_key,
+        )?;
         let content_hash = content.content_hash()?;
         let signature = sign_data(author_private_key, &content, password)?;
 
@@ -498,8 +503,7 @@ mod tests {
         .expect("Failed to create post");
 
         let serialized = bincode::serialize(&post).expect("Failed to serialize");
-        let deserialized: Post =
-            bincode::deserialize(&serialized).expect("Failed to deserialize");
+        let deserialized: Post = bincode::deserialize(&serialized).expect("Failed to deserialize");
 
         assert_eq!(post.body(), deserialized.body());
         assert_eq!(post.content_hash, deserialized.content_hash);

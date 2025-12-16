@@ -460,7 +460,6 @@ fn test_timing_safe_error_handling() {
     );
 }
 
-
 /// Comprehensive timing analysis report
 #[test]
 fn test_comprehensive_timing_analysis_report() {

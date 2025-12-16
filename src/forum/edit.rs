@@ -260,8 +260,12 @@ impl EditNode {
         editor_private_key: &crate::crypto::PrivateKey,
         password: Option<&crate::crypto::Password>,
     ) -> Result<Self> {
-        let content =
-            EditNodeContent::new_forum_edit(forum_hash, new_name, new_description, editor_public_key)?;
+        let content = EditNodeContent::new_forum_edit(
+            forum_hash,
+            new_name,
+            new_description,
+            editor_public_key,
+        )?;
         let content_hash = content.content_hash()?;
         let signature = sign_data(editor_private_key, &content, password)?;
 

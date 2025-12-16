@@ -71,8 +71,9 @@ impl ContentHash {
     ///
     /// Uses bincode for deterministic serialization, then SHA3-512 for hashing.
     pub fn compute<T: Serialize>(data: &T) -> Result<Self> {
-        let serialized = bincode::serialize(data)
-            .map_err(|e| PqpgpError::serialization(format!("Failed to serialize for hash: {}", e)))?;
+        let serialized = bincode::serialize(data).map_err(|e| {
+            PqpgpError::serialization(format!("Failed to serialize for hash: {}", e))
+        })?;
         Ok(Self(hash_data(&serialized)))
     }
 
@@ -184,6 +185,8 @@ pub enum ModAction {
     HideBoard = 9,
     /// Unhide a previously hidden board.
     UnhideBoard = 10,
+    /// Move a thread to a different board.
+    MoveThread = 11,
 }
 
 impl fmt::Display for ModAction {
@@ -199,6 +202,7 @@ impl fmt::Display for ModAction {
             ModAction::UnhidePost => write!(f, "UnhidePost"),
             ModAction::HideBoard => write!(f, "HideBoard"),
             ModAction::UnhideBoard => write!(f, "UnhideBoard"),
+            ModAction::MoveThread => write!(f, "MoveThread"),
         }
     }
 }
@@ -240,6 +244,11 @@ impl ModAction {
             self,
             ModAction::UnhideThread | ModAction::UnhidePost | ModAction::UnhideBoard
         )
+    }
+
+    /// Returns true if this is a move action.
+    pub fn is_move_action(&self) -> bool {
+        matches!(self, ModAction::MoveThread)
     }
 }
 

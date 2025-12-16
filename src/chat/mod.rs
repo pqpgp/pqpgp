@@ -54,21 +54,25 @@
 //! # Ok::<(), pqpgp::error::PqpgpError>(())
 //! ```
 
+pub mod header;
 pub mod identity;
+pub mod message;
 pub mod prekey;
-pub mod x3dh;
 pub mod ratchet;
 pub mod session;
-pub mod header;
-pub mod message;
+pub mod x3dh;
 
+pub use header::{EncryptedHeader, HeaderKey, MessageHeader};
 pub use identity::{Identity, IdentityKey, IdentityKeyPair};
-pub use prekey::{PreKeyBundle, SignedPreKey, OneTimePreKey, PreKeyId};
-pub use x3dh::{X3DHSender, X3DHReceiver, X3DHKeys, X3DHSharedSecret};
-pub use ratchet::{DoubleRatchet, RatchetState, ChainKey, MessageKey, RatchetPublicKey, RatchetKeyPair};
-pub use session::{Session, SessionState, EncryptedChatMessage, PeerInfo};
-pub use header::{MessageHeader, HeaderKey, EncryptedHeader};
-pub use message::{ChatMessage, MessagePayload, ContentType, MessageId, Attachment, Location, Reaction};
+pub use message::{
+    Attachment, ChatMessage, ContentType, Location, MessageId, MessagePayload, Reaction,
+};
+pub use prekey::{OneTimePreKey, PreKeyBundle, PreKeyId, SignedPreKey};
+pub use ratchet::{
+    ChainKey, DoubleRatchet, MessageKey, RatchetKeyPair, RatchetPublicKey, RatchetState,
+};
+pub use session::{EncryptedChatMessage, PeerInfo, Session, SessionState};
+pub use x3dh::{X3DHKeys, X3DHReceiver, X3DHSender, X3DHSharedSecret};
 
 /// Maximum number of skipped message keys to store per session.
 /// This limits memory usage while allowing reasonable out-of-order delivery.

@@ -256,9 +256,8 @@ impl Session {
         let (shared_secret, x3dh_keys) = X3DHSender::perform(our_identity, their_bundle)?;
 
         // Get the signed prekey as the initial ratchet key
-        let their_ratchet_key = RatchetPublicKey::from_bytes(
-            their_bundle.signed_prekey().public_key().to_vec(),
-        )?;
+        let their_ratchet_key =
+            RatchetPublicKey::from_bytes(their_bundle.signed_prekey().public_key().to_vec())?;
 
         // Create the double ratchet
         let ratchet = DoubleRatchet::new_initiator(
@@ -311,7 +310,9 @@ impl Session {
             return Err(PqpgpError::session("Expected initial message"));
         }
 
-        let x3dh_keys = initial_message.x3dh_keys.as_ref()
+        let x3dh_keys = initial_message
+            .x3dh_keys
+            .as_ref()
             .ok_or_else(|| PqpgpError::session("Initial message missing X3DH keys"))?;
 
         // Verify the signed prekey ID matches
@@ -320,7 +321,8 @@ impl Session {
         }
 
         // Get the one-time prekey private if used
-        let otp_private = x3dh_keys.one_time_prekey_id
+        let otp_private = x3dh_keys
+            .one_time_prekey_id
             .and_then(|id| prekey_generator.consume_one_time_prekey(id));
 
         // Perform X3DH key agreement
@@ -336,7 +338,10 @@ impl Session {
         // the signed prekey private key for the initial decapsulation
         let our_ratchet_keypair = RatchetKeyPair::from_bytes(
             prekey_generator.signed_prekey().public_key().to_vec(),
-            prekey_generator.signed_prekey_private().secret_key_bytes().to_vec(),
+            prekey_generator
+                .signed_prekey_private()
+                .secret_key_bytes()
+                .to_vec(),
         )?;
 
         // Create the double ratchet as responder
@@ -347,12 +352,14 @@ impl Session {
         );
 
         // Parse the sender's ratchet key from the header
-        let their_ratchet_key = RatchetPublicKey::from_bytes(
-            initial_message.header.ratchet_key.clone(),
-        )?;
+        let their_ratchet_key =
+            RatchetPublicKey::from_bytes(initial_message.header.ratchet_key.clone())?;
 
         // Get the KEM ciphertext - required for the first message
-        let kem_ciphertext = initial_message.header.kem_ciphertext.as_ref()
+        let kem_ciphertext = initial_message
+            .header
+            .kem_ciphertext
+            .as_ref()
             .ok_or_else(|| PqpgpError::session("Initial message missing KEM ciphertext"))?;
 
         // Initialize the responder's ratchet with the sender's key and ciphertext
@@ -405,11 +412,8 @@ impl Session {
         let kem_ciphertext = self.ratchet.state_mut().generate_kem_ciphertext()?;
 
         // Encrypt the plaintext
-        let ciphertext = encrypt_with_message_key(
-            &message_key,
-            plaintext,
-            self.ratchet.associated_data(),
-        )?;
+        let ciphertext =
+            encrypt_with_message_key(&message_key, plaintext, self.ratchet.associated_data())?;
 
         // Build the header
         let header = MessageHeader {
@@ -454,9 +458,7 @@ impl Session {
         }
 
         // Parse the sender's ratchet key
-        let their_ratchet_key = RatchetPublicKey::from_bytes(
-            message.header.ratchet_key.clone(),
-        )?;
+        let their_ratchet_key = RatchetPublicKey::from_bytes(message.header.ratchet_key.clone())?;
 
         // Get the message key from the ratchet
         let message_key = self.ratchet.decrypt(
@@ -610,10 +612,7 @@ mod tests {
 
         assert!(session.state.is_initiator);
         assert!(!session.state.established);
-        assert_eq!(
-            session.peer_identity_key_id(),
-            bob_identity.key_id()
-        );
+        assert_eq!(session.peer_identity_key_id(), bob_identity.key_id());
     }
 
     #[test]
@@ -649,11 +648,8 @@ mod tests {
         let encrypted = alice_session.encrypt(first_message).unwrap();
 
         // Bob receives and establishes his session
-        let (mut bob_session, decrypted) = Session::receive_initial(
-            &bob_identity,
-            &mut bob_prekeys,
-            &encrypted,
-        ).unwrap();
+        let (mut bob_session, decrypted) =
+            Session::receive_initial(&bob_identity, &mut bob_prekeys, &encrypted).unwrap();
 
         assert_eq!(decrypted, first_message);
         assert!(bob_session.is_established());
@@ -686,11 +682,8 @@ mod tests {
         let enc1 = alice_session.encrypt(msg1).unwrap();
         assert!(enc1.is_initial);
 
-        let (mut bob_session, dec1) = Session::receive_initial(
-            &bob_identity,
-            &mut bob_prekeys,
-            &enc1,
-        ).unwrap();
+        let (mut bob_session, dec1) =
+            Session::receive_initial(&bob_identity, &mut bob_prekeys, &enc1).unwrap();
         assert_eq!(dec1, msg1);
 
         // Second message (not initial)
@@ -726,11 +719,8 @@ mod tests {
 
         // Alice -> Bob
         let enc1 = alice_session.encrypt(b"Hi Bob").unwrap();
-        let (mut bob_session, _) = Session::receive_initial(
-            &bob_identity,
-            &mut bob_prekeys,
-            &enc1,
-        ).unwrap();
+        let (mut bob_session, _) =
+            Session::receive_initial(&bob_identity, &mut bob_prekeys, &enc1).unwrap();
 
         // Bob -> Alice
         let enc2 = bob_session.encrypt(b"Hi Alice").unwrap();
@@ -766,11 +756,7 @@ mod tests {
         }
 
         // Bob should fail to decrypt
-        let result = Session::receive_initial(
-            &bob_identity,
-            &mut bob_prekeys,
-            &encrypted,
-        );
+        let result = Session::receive_initial(&bob_identity, &mut bob_prekeys, &encrypted);
 
         assert!(result.is_err());
     }

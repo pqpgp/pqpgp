@@ -224,9 +224,10 @@ impl ForumState {
     /// Returns the most recent edit's name if any, otherwise the original name.
     pub fn effective_board_name(&self, board_hash: &ContentHash) -> Option<String> {
         // First, find the original board
-        let original_name = self.nodes.get(board_hash).and_then(|node| {
-            node.as_board_genesis().map(|b| b.name().to_string())
-        })?;
+        let original_name = self
+            .nodes
+            .get(board_hash)
+            .and_then(|node| node.as_board_genesis().map(|b| b.name().to_string()))?;
 
         // Then check for edits
         let edited_name = self
@@ -241,9 +242,10 @@ impl ForumState {
     /// Returns the most recent edit's description if any, otherwise the original description.
     pub fn effective_board_description(&self, board_hash: &ContentHash) -> Option<String> {
         // First, find the original board
-        let original_desc = self.nodes.get(board_hash).and_then(|node| {
-            node.as_board_genesis().map(|b| b.description().to_string())
-        })?;
+        let original_desc = self
+            .nodes
+            .get(board_hash)
+            .and_then(|node| node.as_board_genesis().map(|b| b.description().to_string()))?;
 
         // Then check for edits
         let edited_desc = self

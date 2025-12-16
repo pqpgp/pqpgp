@@ -216,7 +216,9 @@ impl BoardGenesis {
         // Verify content hash
         let computed_hash = self.content.content_hash()?;
         if computed_hash != self.content_hash {
-            return Err(PqpgpError::validation("Board genesis content hash mismatch"));
+            return Err(PqpgpError::validation(
+                "Board genesis content hash mismatch",
+            ));
         }
 
         // Verify signature

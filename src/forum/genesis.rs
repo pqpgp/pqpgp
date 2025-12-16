@@ -334,20 +334,14 @@ mod tests {
 
         // Maximum valid name length
         let max_name = "x".repeat(MAX_FORUM_NAME_LENGTH);
-        let result = ForumGenesisContent::new(
-            max_name,
-            "Description".to_string(),
-            keypair.public_key(),
-        );
+        let result =
+            ForumGenesisContent::new(max_name, "Description".to_string(), keypair.public_key());
         assert!(result.is_ok());
 
         // Maximum valid description length
         let max_description = "x".repeat(MAX_FORUM_DESCRIPTION_LENGTH);
-        let result = ForumGenesisContent::new(
-            "Forum".to_string(),
-            max_description,
-            keypair.public_key(),
-        );
+        let result =
+            ForumGenesisContent::new("Forum".to_string(), max_description, keypair.public_key());
         assert!(result.is_ok());
     }
 
@@ -403,6 +397,9 @@ mod tests {
         let hash1 = content1.content_hash().unwrap();
         let hash2 = content2.content_hash().unwrap();
 
-        assert_ne!(hash1, hash2, "Different content should produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different content should produce different hashes"
+        );
     }
 }

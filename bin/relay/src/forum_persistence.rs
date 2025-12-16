@@ -106,9 +106,12 @@ impl ForumPersistence {
     ///
     /// Returns an error if the column family doesn't exist (database corruption).
     fn cf(&self, name: &str) -> Result<Arc<BoundColumnFamily<'_>>, String> {
-        self.db
-            .cf_handle(name)
-            .ok_or_else(|| format!("Column family '{}' not found - database may be corrupted", name))
+        self.db.cf_handle(name).ok_or_else(|| {
+            format!(
+                "Column family '{}' not found - database may be corrupted",
+                name
+            )
+        })
     }
 
     /// Creates a composite key for a node: `{forum_hash}:{node_hash}`.

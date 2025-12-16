@@ -296,6 +296,8 @@ pub struct ThreadViewTemplate {
     pub signing_keys: Vec<SigningKeyInfo>,
     /// Whether the current user is a moderator (can hide/unhide content).
     pub is_moderator: bool,
+    /// All boards in the forum (for move thread dropdown).
+    pub all_boards: Vec<BoardDisplayInfo>,
     pub result: Option<String>,
     pub error: Option<String>,
     pub has_result: bool,

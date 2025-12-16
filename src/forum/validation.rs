@@ -12,11 +12,11 @@
 
 use crate::crypto::PublicKey;
 use crate::error::{PqpgpError, Result};
+use crate::forum::permissions::ForumPermissions;
 use crate::forum::{
     BoardGenesis, ContentHash, DagNode, EditNode, EditType, ForumGenesis, ModAction, ModActionNode,
     NodeType, Post, ThreadRoot,
 };
-use crate::forum::permissions::ForumPermissions;
 use std::collections::HashMap;
 
 /// Maximum allowed clock skew for timestamps (5 minutes in milliseconds).
@@ -127,10 +127,18 @@ pub fn validate_forum_genesis(forum: &ForumGenesis) -> Result<ValidationResult> 
 
     // Validate content sizes
     if forum.name().len() > MAX_NAME_SIZE {
-        result.add_error(format!("Forum name too long: {} bytes (max {})", forum.name().len(), MAX_NAME_SIZE));
+        result.add_error(format!(
+            "Forum name too long: {} bytes (max {})",
+            forum.name().len(),
+            MAX_NAME_SIZE
+        ));
     }
     if forum.description().len() > MAX_DESCRIPTION_SIZE {
-        result.add_error(format!("Forum description too long: {} bytes (max {})", forum.description().len(), MAX_DESCRIPTION_SIZE));
+        result.add_error(format!(
+            "Forum description too long: {} bytes (max {})",
+            forum.description().len(),
+            MAX_DESCRIPTION_SIZE
+        ));
     }
 
     // Validate timestamp is reasonable
@@ -139,11 +147,9 @@ pub fn validate_forum_genesis(forum: &ForumGenesis) -> Result<ValidationResult> 
     }
 
     // Reconstruct public key from stored identity, using key_id from signature
-    let public_key = PublicKey::from_mldsa87_bytes_with_id(
-        forum.creator_identity(),
-        forum.signature.key_id,
-    )
-    .map_err(|_| PqpgpError::validation("Invalid creator public key in forum genesis"))?;
+    let public_key =
+        PublicKey::from_mldsa87_bytes_with_id(forum.creator_identity(), forum.signature.key_id)
+            .map_err(|_| PqpgpError::validation("Invalid creator public key in forum genesis"))?;
 
     // Verify signature and content hash
     if let Err(e) = forum.verify(&public_key) {
@@ -168,10 +174,18 @@ pub fn validate_board_genesis(
 
     // Validate content sizes
     if board.name().len() > MAX_NAME_SIZE {
-        result.add_error(format!("Board name too long: {} bytes (max {})", board.name().len(), MAX_NAME_SIZE));
+        result.add_error(format!(
+            "Board name too long: {} bytes (max {})",
+            board.name().len(),
+            MAX_NAME_SIZE
+        ));
     }
     if board.description().len() > MAX_DESCRIPTION_SIZE {
-        result.add_error(format!("Board description too long: {} bytes (max {})", board.description().len(), MAX_DESCRIPTION_SIZE));
+        result.add_error(format!(
+            "Board description too long: {} bytes (max {})",
+            board.description().len(),
+            MAX_DESCRIPTION_SIZE
+        ));
     }
 
     // Validate timestamp is reasonable
@@ -194,11 +208,9 @@ pub fn validate_board_genesis(
     }
 
     // Reconstruct public key, using key_id from signature
-    let public_key = PublicKey::from_mldsa87_bytes_with_id(
-        board.creator_identity(),
-        board.signature.key_id,
-    )
-    .map_err(|_| PqpgpError::validation("Invalid creator public key in board genesis"))?;
+    let public_key =
+        PublicKey::from_mldsa87_bytes_with_id(board.creator_identity(), board.signature.key_id)
+            .map_err(|_| PqpgpError::validation("Invalid creator public key in board genesis"))?;
 
     // Verify signature and content hash
     if let Err(e) = board.verify(&public_key) {
@@ -236,10 +248,18 @@ pub fn validate_thread_root(
 
     // Validate content sizes
     if thread.title().len() > MAX_THREAD_TITLE_SIZE {
-        result.add_error(format!("Thread title too long: {} bytes (max {})", thread.title().len(), MAX_THREAD_TITLE_SIZE));
+        result.add_error(format!(
+            "Thread title too long: {} bytes (max {})",
+            thread.title().len(),
+            MAX_THREAD_TITLE_SIZE
+        ));
     }
     if thread.body().len() > MAX_THREAD_BODY_SIZE {
-        result.add_error(format!("Thread body too long: {} bytes (max {})", thread.body().len(), MAX_THREAD_BODY_SIZE));
+        result.add_error(format!(
+            "Thread body too long: {} bytes (max {})",
+            thread.body().len(),
+            MAX_THREAD_BODY_SIZE
+        ));
     }
 
     // Validate timestamp is reasonable
@@ -262,11 +282,9 @@ pub fn validate_thread_root(
     }
 
     // Reconstruct public key, using key_id from signature
-    let public_key = PublicKey::from_mldsa87_bytes_with_id(
-        thread.author_identity(),
-        thread.signature.key_id,
-    )
-    .map_err(|_| PqpgpError::validation("Invalid author public key in thread root"))?;
+    let public_key =
+        PublicKey::from_mldsa87_bytes_with_id(thread.author_identity(), thread.signature.key_id)
+            .map_err(|_| PqpgpError::validation("Invalid author public key in thread root"))?;
 
     // Verify signature and content hash
     if let Err(e) = thread.verify(&public_key) {
@@ -301,12 +319,20 @@ pub fn validate_post(post: &Post, ctx: &ValidationContext) -> Result<ValidationR
 
     // Validate content sizes
     if post.body().len() > MAX_POST_BODY_SIZE {
-        result.add_error(format!("Post body too long: {} bytes (max {})", post.body().len(), MAX_POST_BODY_SIZE));
+        result.add_error(format!(
+            "Post body too long: {} bytes (max {})",
+            post.body().len(),
+            MAX_POST_BODY_SIZE
+        ));
     }
 
     // Validate parent hash count
     if post.parent_hashes().len() > MAX_POST_PARENT_HASHES {
-        result.add_error(format!("Too many parent hashes: {} (max {})", post.parent_hashes().len(), MAX_POST_PARENT_HASHES));
+        result.add_error(format!(
+            "Too many parent hashes: {} (max {})",
+            post.parent_hashes().len(),
+            MAX_POST_PARENT_HASHES
+        ));
     }
 
     // Validate timestamp is reasonable
@@ -383,14 +409,18 @@ pub fn validate_post(post: &Post, ctx: &ValidationContext) -> Result<ValidationR
                     // Verify quoted post belongs to the same thread
                     if let Some(quoted_post) = quoted_node.as_post() {
                         if quoted_post.thread_hash() != thread_hash {
-                            result.add_error("Post quotes a post from a different thread".to_string());
+                            result.add_error(
+                                "Post quotes a post from a different thread".to_string(),
+                            );
                         }
                     }
                 }
                 NodeType::ThreadRoot => {
                     // Quoting the thread root is valid, but must be this thread
                     if quote_hash != thread_hash {
-                        result.add_error("Post quotes a ThreadRoot from a different thread".to_string());
+                        result.add_error(
+                            "Post quotes a ThreadRoot from a different thread".to_string(),
+                        );
                     }
                 }
                 _ => {
@@ -404,11 +434,9 @@ pub fn validate_post(post: &Post, ctx: &ValidationContext) -> Result<ValidationR
     }
 
     // Reconstruct public key, using key_id from signature
-    let public_key = PublicKey::from_mldsa87_bytes_with_id(
-        post.author_identity(),
-        post.signature.key_id,
-    )
-    .map_err(|_| PqpgpError::validation("Invalid author public key in post"))?;
+    let public_key =
+        PublicKey::from_mldsa87_bytes_with_id(post.author_identity(), post.signature.key_id)
+            .map_err(|_| PqpgpError::validation("Invalid author public key in post"))?;
 
     // Verify signature and content hash
     if let Err(e) = post.verify(&public_key) {
@@ -459,7 +487,8 @@ pub fn validate_mod_action(
     // Verify forum is actually a forum genesis
     if let Some(forum) = ctx.get_node(forum_hash) {
         if forum.node_type() != NodeType::ForumGenesis {
-            result.add_error("Moderation action forum reference is not a forum genesis".to_string());
+            result
+                .add_error("Moderation action forum reference is not a forum genesis".to_string());
         }
     }
 
@@ -492,7 +521,9 @@ pub fn validate_mod_action(
                     }
                 }
             } else {
-                result.add_error("HideThread/UnhideThread action missing target_node_hash".to_string());
+                result.add_error(
+                    "HideThread/UnhideThread action missing target_node_hash".to_string(),
+                );
             }
         }
         ModAction::HidePost | ModAction::UnhidePost => {
@@ -515,7 +546,10 @@ pub fn validate_mod_action(
                 result.add_error("HidePost/UnhidePost action missing target_node_hash".to_string());
             }
         }
-        ModAction::AddBoardModerator | ModAction::RemoveBoardModerator | ModAction::HideBoard | ModAction::UnhideBoard => {
+        ModAction::AddBoardModerator
+        | ModAction::RemoveBoardModerator
+        | ModAction::HideBoard
+        | ModAction::UnhideBoard => {
             // Board actions require board_hash
             if let Some(board_hash) = action.board_hash() {
                 if !ctx.node_exists(board_hash) {
@@ -545,17 +579,86 @@ pub fn validate_mod_action(
                 result.add_error("Board moderation action missing board_hash".to_string());
             }
         }
+        ModAction::MoveThread => {
+            // MoveThread requires both target_node_hash (thread) and board_hash (destination)
+            // Validate thread exists and is a ThreadRoot
+            if let Some(thread_hash) = action.target_node_hash() {
+                if !ctx.node_exists(thread_hash) {
+                    result.add_error(format!(
+                        "MoveThread target thread {} does not exist",
+                        thread_hash.short()
+                    ));
+                } else if let Some(thread_node) = ctx.get_node(thread_hash) {
+                    if thread_node.node_type() != NodeType::ThreadRoot {
+                        result.add_error(format!(
+                            "MoveThread target {} is not a ThreadRoot (got {:?})",
+                            thread_hash.short(),
+                            thread_node.node_type()
+                        ));
+                    } else if let Some(thread) = thread_node.as_thread_root() {
+                        // Get thread's original board and verify it belongs to this forum
+                        let original_board_hash = thread.board_hash();
+                        if let Some(board_node) = ctx.get_node(original_board_hash) {
+                            if let Some(board) = board_node.as_board_genesis() {
+                                if board.forum_hash() != forum_hash {
+                                    result.add_error(format!(
+                                        "Thread {} does not belong to forum {}",
+                                        thread_hash.short(),
+                                        forum_hash.short()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                result.add_error(
+                    "MoveThread action missing target_node_hash (thread to move)".to_string(),
+                );
+            }
+
+            // Validate destination board exists, is a BoardGenesis, and belongs to this forum
+            if let Some(dest_board_hash) = action.board_hash() {
+                if !ctx.node_exists(dest_board_hash) {
+                    result.add_error(format!(
+                        "MoveThread destination board {} does not exist",
+                        dest_board_hash.short()
+                    ));
+                } else if let Some(board_node) = ctx.get_node(dest_board_hash) {
+                    if board_node.node_type() != NodeType::BoardGenesis {
+                        result.add_error(format!(
+                            "MoveThread destination {} is not a BoardGenesis (got {:?})",
+                            dest_board_hash.short(),
+                            board_node.node_type()
+                        ));
+                    } else if let Some(board) = board_node.as_board_genesis() {
+                        // Verify destination board belongs to this forum
+                        if board.forum_hash() != forum_hash {
+                            result.add_error(format!(
+                                "Destination board {} does not belong to forum {}",
+                                dest_board_hash.short(),
+                                forum_hash.short()
+                            ));
+                        }
+                    }
+                }
+            } else {
+                result.add_error(
+                    "MoveThread action missing board_hash (destination board)".to_string(),
+                );
+            }
+        }
         ModAction::AddModerator | ModAction::RemoveModerator => {
             // Forum-level actions don't need additional target validation
         }
     }
 
     // Reconstruct public key, using key_id from signature
-    let public_key = PublicKey::from_mldsa87_bytes_with_id(
-        action.issuer_identity(),
-        action.signature.key_id,
-    )
-    .map_err(|_| PqpgpError::validation("Invalid issuer public key in moderation action"))?;
+    let public_key =
+        PublicKey::from_mldsa87_bytes_with_id(action.issuer_identity(), action.signature.key_id)
+            .map_err(|_| {
+                PqpgpError::validation("Invalid issuer public key in moderation action")
+            })?;
 
     // Verify signature and content hash
     if let Err(e) = action.verify(&public_key) {
@@ -570,7 +673,7 @@ pub fn validate_mod_action(
             ModAction::AddModerator | ModAction::RemoveModerator => {
                 permissions.can_moderate(issuer)
             }
-            // Board-level actions and content actions require owner or forum moderator
+            // Board-level actions, content actions, and move thread require owner or forum moderator
             ModAction::AddBoardModerator
             | ModAction::RemoveBoardModerator
             | ModAction::HideThread
@@ -578,9 +681,8 @@ pub fn validate_mod_action(
             | ModAction::HidePost
             | ModAction::UnhidePost
             | ModAction::HideBoard
-            | ModAction::UnhideBoard => {
-                permissions.can_manage_board_moderators(issuer)
-            }
+            | ModAction::UnhideBoard
+            | ModAction::MoveThread => permissions.can_manage_board_moderators(issuer),
         };
         if !has_permission {
             result.add_error(format!(
@@ -620,12 +722,20 @@ pub fn validate_edit(edit: &EditNode, ctx: &ValidationContext) -> Result<Validat
     // Validate content sizes (if present)
     if let Some(name) = edit.new_name() {
         if name.len() > MAX_NAME_SIZE {
-            result.add_error(format!("Edit new_name too long: {} bytes (max {})", name.len(), MAX_NAME_SIZE));
+            result.add_error(format!(
+                "Edit new_name too long: {} bytes (max {})",
+                name.len(),
+                MAX_NAME_SIZE
+            ));
         }
     }
     if let Some(desc) = edit.new_description() {
         if desc.len() > MAX_DESCRIPTION_SIZE {
-            result.add_error(format!("Edit new_description too long: {} bytes (max {})", desc.len(), MAX_DESCRIPTION_SIZE));
+            result.add_error(format!(
+                "Edit new_description too long: {} bytes (max {})",
+                desc.len(),
+                MAX_DESCRIPTION_SIZE
+            ));
         }
     }
 
@@ -669,7 +779,9 @@ pub fn validate_edit(edit: &EditNode, ctx: &ValidationContext) -> Result<Validat
                 // Verify the board belongs to this forum
                 if let Some(board) = target.as_board_genesis() {
                     if board.forum_hash() != forum_hash {
-                        result.add_error("EditBoard target board does not belong to this forum".to_string());
+                        result.add_error(
+                            "EditBoard target board does not belong to this forum".to_string(),
+                        );
                     }
                 }
             }
@@ -677,11 +789,9 @@ pub fn validate_edit(edit: &EditNode, ctx: &ValidationContext) -> Result<Validat
     }
 
     // Reconstruct public key, using key_id from signature
-    let public_key = PublicKey::from_mldsa87_bytes_with_id(
-        edit.editor_identity(),
-        edit.signature.key_id,
-    )
-    .map_err(|_| PqpgpError::validation("Invalid editor public key in edit node"))?;
+    let public_key =
+        PublicKey::from_mldsa87_bytes_with_id(edit.editor_identity(), edit.signature.key_id)
+            .map_err(|_| PqpgpError::validation("Invalid editor public key in edit node"))?;
 
     // Verify signature and content hash
     if let Err(e) = edit.verify(&public_key) {
@@ -734,7 +844,7 @@ pub fn validate_node(node: &DagNode, ctx: &ValidationContext) -> Result<Validati
 mod tests {
     use super::*;
     use crate::crypto::KeyPair;
-    use crate::forum::{ModAction, types::current_timestamp_millis};
+    use crate::forum::{types::current_timestamp_millis, ModAction};
 
     fn create_test_keypair() -> KeyPair {
         KeyPair::generate_mldsa87().expect("Failed to generate keypair")
@@ -952,7 +1062,10 @@ mod tests {
         let ctx = ValidationContext::new(&nodes, &permissions, current_timestamp_millis());
         let result = validate_post(&post, &ctx).unwrap();
         assert!(!result.is_valid);
-        assert!(result.errors.iter().any(|e| e.contains("non-existent parent")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("non-existent parent")));
     }
 
     #[test]
@@ -1012,7 +1125,10 @@ mod tests {
         let result = validate_mod_action(&action, &ctx).unwrap();
         assert!(!result.is_valid);
         assert!(
-            result.errors.iter().any(|e| e.contains("Insufficient permissions")),
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Insufficient permissions")),
             "Expected 'Insufficient permissions' error, got: {:?}",
             result.errors
         );

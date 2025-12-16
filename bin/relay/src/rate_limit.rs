@@ -72,7 +72,8 @@ impl TokenBucket {
         let elapsed = now.duration_since(self.last_replenish);
 
         // Replenish tokens based on elapsed time
-        let replenish_rate = config.requests_per_window as f64 / config.window_duration.as_secs_f64();
+        let replenish_rate =
+            config.requests_per_window as f64 / config.window_duration.as_secs_f64();
         let tokens_to_add = elapsed.as_secs_f64() * replenish_rate;
 
         self.tokens = (self.tokens + tokens_to_add).min(config.requests_per_window as f64);
@@ -121,9 +122,10 @@ impl RateLimitState {
         }
 
         // Get or create bucket for this IP
-        let bucket = self.buckets.entry(ip).or_insert_with(|| {
-            TokenBucket::new(self.config.requests_per_window)
-        });
+        let bucket = self
+            .buckets
+            .entry(ip)
+            .or_insert_with(|| TokenBucket::new(self.config.requests_per_window));
 
         bucket.try_consume(&self.config)
     }
@@ -132,7 +134,8 @@ impl RateLimitState {
     fn cleanup_stale_buckets(&mut self) {
         let cleanup_interval = self.config.cleanup_interval;
         let before_count = self.buckets.len();
-        self.buckets.retain(|_, bucket| !bucket.is_stale(cleanup_interval));
+        self.buckets
+            .retain(|_, bucket| !bucket.is_stale(cleanup_interval));
         let removed = before_count - self.buckets.len();
         if removed > 0 {
             tracing::debug!("Cleaned up {} stale rate limit buckets", removed);

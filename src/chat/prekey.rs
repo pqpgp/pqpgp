@@ -302,23 +302,22 @@ impl PreKeyBundle {
     /// 4. The one-time prekey (if present) is a valid ML-KEM-1024 public key
     pub fn verify(&self) -> Result<()> {
         // 1. Validate identity key is well-formed (can be parsed as ML-DSA-87)
-        self.identity_key.as_public_key().map_err(|_| {
-            PqpgpError::prekey("Invalid identity key in prekey bundle")
-        })?;
+        self.identity_key
+            .as_public_key()
+            .map_err(|_| PqpgpError::prekey("Invalid identity key in prekey bundle"))?;
 
         // 2. Validate signed prekey is well-formed (can be parsed as ML-KEM-1024)
-        self.signed_prekey.as_mlkem_public().map_err(|_| {
-            PqpgpError::prekey("Invalid signed prekey in prekey bundle")
-        })?;
+        self.signed_prekey
+            .as_mlkem_public()
+            .map_err(|_| PqpgpError::prekey("Invalid signed prekey in prekey bundle"))?;
 
         // 3. Verify the signature on the signed prekey
         self.signed_prekey.verify(&self.identity_key)?;
 
         // 4. Validate one-time prekey if present
         if let Some(otpk) = &self.one_time_prekey {
-            otpk.as_mlkem_public().map_err(|_| {
-                PqpgpError::prekey("Invalid one-time prekey in prekey bundle")
-            })?;
+            otpk.as_mlkem_public()
+                .map_err(|_| PqpgpError::prekey("Invalid one-time prekey in prekey bundle"))?;
         }
 
         Ok(())

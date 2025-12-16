@@ -334,8 +334,12 @@ mod tests {
         let board_hash = ContentHash::from_bytes([0u8; 64]);
 
         let long_title = "x".repeat(MAX_THREAD_TITLE_LENGTH + 1);
-        let result =
-            ThreadRootContent::new(board_hash, long_title, "Body".to_string(), keypair.public_key());
+        let result = ThreadRootContent::new(
+            board_hash,
+            long_title,
+            "Body".to_string(),
+            keypair.public_key(),
+        );
 
         assert!(result.is_err());
     }
@@ -447,8 +451,12 @@ mod tests {
         .expect("Failed to create thread 2");
 
         // Each verifies with their own key
-        thread1.verify(author1.public_key()).expect("Thread 1 verification failed");
-        thread2.verify(author2.public_key()).expect("Thread 2 verification failed");
+        thread1
+            .verify(author1.public_key())
+            .expect("Thread 1 verification failed");
+        thread2
+            .verify(author2.public_key())
+            .expect("Thread 2 verification failed");
 
         // Cross-verification should fail
         assert!(thread1.verify(author2.public_key()).is_err());

@@ -422,12 +422,7 @@ mod tests {
         let thread = create_test_thread(&keypair, &board);
         let post = create_test_post(&keypair, &thread);
 
-        let nodes: Vec<DagNode> = vec![
-            forum.into(),
-            board.into(),
-            thread.into(),
-            post.into(),
-        ];
+        let nodes: Vec<DagNode> = vec![forum.into(), board.into(), thread.into(), post.into()];
 
         for original in nodes {
             let bytes = original.to_bytes().expect("Failed to serialize");
@@ -444,10 +439,7 @@ mod tests {
 
         let dag_node: DagNode = forum.into();
 
-        assert_eq!(
-            dag_node.author_identity(),
-            keypair.public_key().as_bytes()
-        );
+        assert_eq!(dag_node.author_identity(), keypair.public_key().as_bytes());
     }
 
     #[test]

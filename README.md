@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/smshaBy.png" alt="PQPGP" width="850">
+  <img src="https://i.imgur.com/AMhsQhq.png" alt="PQPGP" width="850">
 </p>
 
 A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, providing quantum-resistant cryptographic operations while maintaining compatibility with standard PGP workflows and packet formats.
@@ -206,6 +206,7 @@ PQPGP includes a cryptographically-secured forum system built on a Directed Acyc
 - `HideThread` / `UnhideThread` - Hide or restore threads (content remains in DAG)
 - `HidePost` / `UnhidePost` - Hide or restore individual posts
 - `HideBoard` / `UnhideBoard` - Hide or restore entire boards
+- `MoveThread` - Move a thread to a different board within the same forum
 
 **DAG Sync Protocol:**
 

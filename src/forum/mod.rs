@@ -51,8 +51,8 @@ pub use permissions::{ForumPermissions, PermissionBuilder};
 pub use post::{Post, PostContent};
 pub use storage::ForumStorage;
 pub use sync::{
-    ExportForumRequest, ExportForumResponse, FetchNodesRequest, FetchNodesResponse,
-    SerializedNode, SubmitNodeRequest, SubmitNodeResponse, SyncRequest, SyncResponse,
+    ExportForumRequest, ExportForumResponse, FetchNodesRequest, FetchNodesResponse, SerializedNode,
+    SubmitNodeRequest, SubmitNodeResponse, SyncRequest, SyncResponse,
 };
 pub use thread::{ThreadRoot, ThreadRootContent};
 pub use types::{ContentHash, ModAction, NodeType};

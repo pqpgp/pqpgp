@@ -19,11 +19,11 @@ use axum::{
 use pqpgp::cli::utils::create_keyring_manager;
 use pqpgp::crypto::Password;
 use pqpgp::forum::{
-    BoardGenesis, ContentHash, DagNode, EditNode, FetchNodesRequest, ForumGenesis, ModAction,
-    ModActionNode, Post, SyncRequest, SyncResponse, ThreadRoot,
     permissions::ForumPermissions,
     types::current_timestamp_millis,
     validation::{validate_node, ValidationContext},
+    BoardGenesis, ContentHash, DagNode, EditNode, FetchNodesRequest, ForumGenesis, ModAction,
+    ModActionNode, Post, SyncRequest, SyncResponse, ThreadRoot,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -228,10 +228,8 @@ async fn sync_forum_with_depth(
 
     // Load existing nodes from local storage for validation context
     let existing_nodes = persistence.load_forum_nodes(forum_hash)?;
-    let mut nodes_map: HashMap<ContentHash, DagNode> = existing_nodes
-        .into_iter()
-        .map(|n| (*n.hash(), n))
-        .collect();
+    let mut nodes_map: HashMap<ContentHash, DagNode> =
+        existing_nodes.into_iter().map(|n| (*n.hash(), n)).collect();
 
     // Build initial permissions from existing nodes
     let mut permissions_map: HashMap<ContentHash, ForumPermissions> = HashMap::new();
@@ -342,8 +340,12 @@ async fn sync_forum_with_depth(
 
     // If there are more nodes, sync again with incremented depth
     if sync_response.has_more {
-        info!("Forum {}: more nodes available, continuing sync", forum_hash.short());
-        let additional = Box::pin(sync_forum_with_depth(persistence, forum_hash, depth + 1)).await?;
+        info!(
+            "Forum {}: more nodes available, continuing sync",
+            forum_hash.short()
+        );
+        let additional =
+            Box::pin(sync_forum_with_depth(persistence, forum_hash, depth + 1)).await?;
         return Ok(stored + additional);
     }
 
@@ -351,7 +353,10 @@ async fn sync_forum_with_depth(
 }
 
 /// Checks if a forum exists locally (has been synced before).
-pub fn forum_exists_locally(persistence: &SharedForumPersistence, forum_hash: &ContentHash) -> bool {
+pub fn forum_exists_locally(
+    persistence: &SharedForumPersistence,
+    forum_hash: &ContentHash,
+) -> bool {
     persistence.forum_exists(forum_hash).unwrap_or(false)
 }
 
@@ -438,6 +443,14 @@ pub struct RemoveBoardModeratorForm {
 /// Form for hiding a thread
 #[derive(Debug, Deserialize)]
 pub struct HideThreadForm {
+    signing_key: String,
+    password: Option<String>,
+}
+
+/// Form for moving a thread to a different board
+#[derive(Debug, Deserialize)]
+pub struct MoveThreadForm {
+    destination_board: String,
     signing_key: String,
     password: Option<String>,
 }
@@ -545,8 +558,7 @@ fn get_key_fingerprint(key_id: &str) -> Option<String> {
 
 /// Get signing materials from the keyring
 fn get_signing_materials(key_id: &str) -> Result<SigningMaterials, String> {
-    let keyring =
-        create_keyring_manager().map_err(|e| format!("Failed to load keyring: {}", e))?;
+    let keyring = create_keyring_manager().map_err(|e| format!("Failed to load keyring: {}", e))?;
 
     // Parse key ID from hex
     let key_id_num = u64::from_str_radix(key_id, 16)
@@ -650,14 +662,21 @@ pub async fn create_forum_handler(
         return Redirect::to("/forum").into_response();
     }
     if data.description.len() > MAX_DESCRIPTION_SIZE {
-        warn!("Forum description too large: {} bytes", data.description.len());
+        warn!(
+            "Forum description too large: {} bytes",
+            data.description.len()
+        );
         return Redirect::to("/forum").into_response();
     }
     if data.signing_key.len() > MAX_HASH_INPUT_SIZE {
         warn!("Signing key ID too large");
         return Redirect::to("/forum").into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to("/forum").into_response();
     }
@@ -765,10 +784,15 @@ pub async fn forum_view_page(
     };
 
     // Load forum metadata from local storage
-    let metadata = match app_state.forum_persistence.load_forum_metadata(&forum_content_hash) {
+    let metadata = match app_state
+        .forum_persistence
+        .load_forum_metadata(&forum_content_hash)
+    {
         Ok(Some(m)) => m,
         Ok(None) => {
-            return Ok(Html("<h1>Forum not found locally. Try adding it first.</h1>".to_string()));
+            return Ok(Html(
+                "<h1>Forum not found locally. Try adding it first.</h1>".to_string(),
+            ));
         }
         Err(e) => {
             error!("Failed to load forum metadata: {}", e);
@@ -870,7 +894,10 @@ pub async fn create_board_handler(
         return Redirect::to(&format!("/forum/{}", forum_hash)).into_response();
     }
     if data.description.len() > MAX_DESCRIPTION_SIZE {
-        warn!("Board description too large: {} bytes", data.description.len());
+        warn!(
+            "Board description too large: {} bytes",
+            data.description.len()
+        );
         return Redirect::to(&format!("/forum/{}", forum_hash)).into_response();
     }
     if data.tags.len() > MAX_TAGS_SIZE {
@@ -881,7 +908,11 @@ pub async fn create_board_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&format!("/forum/{}", forum_hash)).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&format!("/forum/{}", forum_hash)).into_response();
     }
@@ -937,7 +968,12 @@ pub async fn create_board_handler(
     };
 
     // Store locally and submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(board)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(board),
+    )
+    .await;
 
     Redirect::to(&format!("/forum/{}", forum_hash)).into_response()
 }
@@ -965,7 +1001,10 @@ pub async fn board_view_page(
     };
 
     // Load forum metadata from local storage
-    let forum_metadata = match app_state.forum_persistence.load_forum_metadata(&forum_content_hash) {
+    let forum_metadata = match app_state
+        .forum_persistence
+        .load_forum_metadata(&forum_content_hash)
+    {
         Ok(Some(m)) => m,
         Ok(None) => return Ok(Html("<h1>Forum not found locally</h1>".to_string())),
         Err(e) => {
@@ -975,7 +1014,10 @@ pub async fn board_view_page(
     };
 
     // Load board from local storage
-    let board = match app_state.forum_persistence.get_board(&forum_content_hash, &board_content_hash) {
+    let board = match app_state
+        .forum_persistence
+        .get_board(&forum_content_hash, &board_content_hash)
+    {
         Ok(Some(b)) => b,
         Ok(None) => return Ok(Html("<h1>Board not found locally</h1>".to_string())),
         Err(e) => {
@@ -1076,7 +1118,8 @@ pub async fn create_thread_handler(
 ) -> impl IntoResponse {
     if !validate_csrf_token(&session, &app_state.csrf_store, &form.csrf_token) {
         warn!("CSRF validation failed for thread creation");
-        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response();
+        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash))
+            .into_response();
     }
 
     let data = form.data;
@@ -1095,7 +1138,11 @@ pub async fn create_thread_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -1145,7 +1192,12 @@ pub async fn create_thread_handler(
     let thread_hash = thread.hash().to_hex();
 
     // Store locally and submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(thread)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(thread),
+    )
+    .await;
 
     Redirect::to(&format!("/forum/{}/thread/{}", forum_hash, thread_hash)).into_response()
 }
@@ -1173,7 +1225,10 @@ pub async fn thread_view_page(
     };
 
     // Load forum metadata from local storage
-    let forum_metadata = match app_state.forum_persistence.load_forum_metadata(&forum_content_hash) {
+    let forum_metadata = match app_state
+        .forum_persistence
+        .load_forum_metadata(&forum_content_hash)
+    {
         Ok(Some(m)) => m,
         Ok(None) => return Ok(Html("<h1>Forum not found locally</h1>".to_string())),
         Err(e) => {
@@ -1183,7 +1238,10 @@ pub async fn thread_view_page(
     };
 
     // Load thread from local storage
-    let thread = match app_state.forum_persistence.get_thread(&forum_content_hash, &thread_content_hash) {
+    let thread = match app_state
+        .forum_persistence
+        .get_thread(&forum_content_hash, &thread_content_hash)
+    {
         Ok(Some(t)) => t,
         Ok(None) => return Ok(Html("<h1>Thread not found locally</h1>".to_string())),
         Err(e) => {
@@ -1193,7 +1251,10 @@ pub async fn thread_view_page(
     };
 
     // Load the board for this thread
-    let board = match app_state.forum_persistence.get_board(&forum_content_hash, thread.board_hash()) {
+    let board = match app_state
+        .forum_persistence
+        .get_board(&forum_content_hash, thread.board_hash())
+    {
         Ok(Some(b)) => b,
         Ok(None) => return Ok(Html("<h1>Board not found locally</h1>".to_string())),
         Err(e) => {
@@ -1254,6 +1315,29 @@ pub async fn thread_view_page(
         .iter()
         .any(|mod_fp| user_fingerprints.iter().any(|fp| fp == mod_fp));
 
+    // Load all boards for the move thread dropdown
+    let all_boards_data = app_state
+        .forum_persistence
+        .get_boards(&forum_content_hash)
+        .unwrap_or_default();
+
+    let hidden_boards = app_state
+        .forum_persistence
+        .get_hidden_boards(&forum_content_hash)
+        .unwrap_or_default();
+
+    let all_boards: Vec<BoardDisplayInfo> = all_boards_data
+        .into_iter()
+        .filter(|b| !hidden_boards.contains(b.hash()))
+        .map(|b| BoardDisplayInfo {
+            hash: b.hash().to_hex(),
+            name: b.name().to_string(),
+            description: b.description().to_string(),
+            tags: b.tags().to_vec(),
+            created_at_display: format_timestamp(b.created_at()),
+        })
+        .collect();
+
     let template = ThreadViewTemplate {
         active_page: "forum".to_string(),
         csrf_token,
@@ -1269,6 +1353,7 @@ pub async fn thread_view_page(
         posts: post_displays,
         signing_keys,
         is_moderator,
+        all_boards,
         result: None,
         error: None,
         has_result: false,
@@ -1303,11 +1388,19 @@ pub async fn post_reply_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.quote_hash.as_ref().map_or(false, |h| h.len() > MAX_HASH_INPUT_SIZE) {
+    if data
+        .quote_hash
+        .as_ref()
+        .map_or(false, |h| h.len() > MAX_HASH_INPUT_SIZE)
+    {
         warn!("Quote hash too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -1362,7 +1455,12 @@ pub async fn post_reply_handler(
     };
 
     // Store locally and submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(post)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(post),
+    )
+    .await;
 
     Redirect::to(&format!("/forum/{}/thread/{}", forum_hash, thread_hash)).into_response()
 }
@@ -1393,7 +1491,11 @@ async fn get_dag_heads(forum_hash: &str) -> Vec<ContentHash> {
             if resp.status().is_success() {
                 match resp.json::<pqpgp::forum::SyncResponse>().await {
                     Ok(sync_resp) => {
-                        info!("Got {} DAG heads for forum {}", sync_resp.server_heads.len(), forum_hash);
+                        info!(
+                            "Got {} DAG heads for forum {}",
+                            sync_resp.server_heads.len(),
+                            forum_hash
+                        );
                         sync_resp.server_heads
                     }
                     Err(e) => {
@@ -1418,11 +1520,7 @@ async fn get_dag_heads(forum_hash: &str) -> Vec<ContentHash> {
 /// The node is validated locally first using the same validation logic as the relay.
 /// Only if validation passes do we store locally and submit to relay. This prevents
 /// storing invalid nodes (e.g., mod actions without sufficient permissions).
-async fn submit_node(
-    persistence: &SharedForumPersistence,
-    forum_hash: &str,
-    node: DagNode,
-) {
+async fn submit_node(persistence: &SharedForumPersistence, forum_hash: &str, node: DagNode) {
     let forum_content_hash = match ContentHash::from_hex(forum_hash) {
         Ok(h) => h,
         Err(e) => {
@@ -1440,10 +1538,8 @@ async fn submit_node(
         }
     };
 
-    let nodes_map: HashMap<ContentHash, DagNode> = existing_nodes
-        .into_iter()
-        .map(|n| (*n.hash(), n))
-        .collect();
+    let nodes_map: HashMap<ContentHash, DagNode> =
+        existing_nodes.into_iter().map(|n| (*n.hash(), n)).collect();
 
     // Build permissions from existing nodes
     let mut permissions_map: HashMap<ContentHash, ForumPermissions> = HashMap::new();
@@ -1510,7 +1606,10 @@ async fn submit_node(
     {
         Ok(resp) => {
             if resp.status().is_success() {
-                info!("Node {} submitted to relay successfully", node.hash().short());
+                info!(
+                    "Node {} submitted to relay successfully",
+                    node.hash().short()
+                );
             } else {
                 warn!(
                     "Node {} submission to relay failed: {:?}",
@@ -1520,7 +1619,11 @@ async fn submit_node(
             }
         }
         Err(e) => {
-            warn!("Failed to submit node {} to relay: {}", node.hash().short(), e);
+            warn!(
+                "Failed to submit node {} to relay: {}",
+                node.hash().short(),
+                e
+            );
         }
     }
 }
@@ -1549,7 +1652,11 @@ pub async fn add_moderator_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -1612,7 +1719,12 @@ pub async fn add_moderator_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!("Added moderator: {}", data.target_fingerprint);
     Redirect::to(&format!("/forum/{}", forum_hash)).into_response()
@@ -1642,7 +1754,11 @@ pub async fn remove_moderator_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -1705,7 +1821,12 @@ pub async fn remove_moderator_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!("Removed moderator: {}", data.target_fingerprint);
     Redirect::to(&format!("/forum/{}", forum_hash)).into_response()
@@ -1739,7 +1860,8 @@ pub async fn add_board_moderator_handler(
 ) -> impl IntoResponse {
     if !validate_csrf_token(&session, &app_state.csrf_store, &form.csrf_token) {
         warn!("CSRF validation failed for add board moderator");
-        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response();
+        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash))
+            .into_response();
     }
 
     let data = form.data;
@@ -1754,7 +1876,11 @@ pub async fn add_board_moderator_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -1831,7 +1957,12 @@ pub async fn add_board_moderator_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!(
         "Added board moderator: {} to board {}",
@@ -1849,7 +1980,8 @@ pub async fn remove_board_moderator_handler(
 ) -> impl IntoResponse {
     if !validate_csrf_token(&session, &app_state.csrf_store, &form.csrf_token) {
         warn!("CSRF validation failed for remove board moderator");
-        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response();
+        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash))
+            .into_response();
     }
 
     let data = form.data;
@@ -1864,7 +1996,11 @@ pub async fn remove_board_moderator_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -1941,13 +2077,130 @@ pub async fn remove_board_moderator_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!(
         "Removed board moderator: {} from board {}",
         data.target_fingerprint, board_hash
     );
     Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response()
+}
+
+/// Move thread to a different board handler
+pub async fn move_thread_handler(
+    State(app_state): State<AppState>,
+    session: Session,
+    Path((forum_hash, thread_hash)): Path<(String, String)>,
+    Form(form): Form<CsrfProtectedForm<MoveThreadForm>>,
+) -> impl IntoResponse {
+    if !validate_csrf_token(&session, &app_state.csrf_store, &form.csrf_token) {
+        warn!("CSRF validation failed for move thread");
+        return Redirect::to(&format!("/forum/{}/thread/{}", forum_hash, thread_hash))
+            .into_response();
+    }
+
+    let data = form.data;
+    let redirect_url = format!("/forum/{}/thread/{}", forum_hash, thread_hash);
+
+    // Validate input sizes (DoS prevention)
+    if data.destination_board.len() > MAX_HASH_INPUT_SIZE {
+        warn!("Destination board hash too large");
+        return Redirect::to(&redirect_url).into_response();
+    }
+    if data.signing_key.len() > MAX_HASH_INPUT_SIZE {
+        warn!("Signing key ID too large");
+        return Redirect::to(&redirect_url).into_response();
+    }
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
+        warn!("Password too large");
+        return Redirect::to(&redirect_url).into_response();
+    }
+
+    // Parse hashes
+    let forum_content_hash = match ContentHash::from_hex(&forum_hash) {
+        Ok(h) => h,
+        Err(_) => {
+            error!("Invalid forum hash: {}", forum_hash);
+            return Redirect::to(&redirect_url).into_response();
+        }
+    };
+
+    let thread_content_hash = match ContentHash::from_hex(&thread_hash) {
+        Ok(h) => h,
+        Err(_) => {
+            error!("Invalid thread hash: {}", thread_hash);
+            return Redirect::to(&redirect_url).into_response();
+        }
+    };
+
+    let dest_board_hash = match ContentHash::from_hex(&data.destination_board) {
+        Ok(h) => h,
+        Err(_) => {
+            error!("Invalid destination board hash: {}", data.destination_board);
+            return Redirect::to(&redirect_url).into_response();
+        }
+    };
+
+    // Get signing materials (moderator's key)
+    let signing = match get_signing_materials(&data.signing_key) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to get signing key: {}", e);
+            return Redirect::to(&redirect_url).into_response();
+        }
+    };
+
+    // Prepare password if provided
+    let password = data
+        .password
+        .as_ref()
+        .filter(|p| !p.is_empty())
+        .map(|p| Password::new(p.clone()));
+
+    // Get current DAG heads for causal ordering
+    let parent_hashes = get_dag_heads(&forum_hash).await;
+
+    // Create move thread action node
+    let mod_action = match ModActionNode::create_move_thread_action(
+        forum_content_hash,
+        thread_content_hash,
+        dest_board_hash,
+        &signing.public_key,
+        &signing.private_key,
+        password.as_ref(),
+        parent_hashes,
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            error!("Failed to create move thread action: {}", e);
+            return Redirect::to(&redirect_url).into_response();
+        }
+    };
+
+    // Submit to relay
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
+
+    info!(
+        "Moved thread {} to board {}",
+        thread_hash, data.destination_board
+    );
+
+    // Redirect to the thread (now on the new board)
+    Redirect::to(&format!("/forum/{}/thread/{}", forum_hash, thread_hash)).into_response()
 }
 
 /// Hide thread handler
@@ -1971,7 +2224,11 @@ pub async fn hide_thread_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2034,7 +2291,12 @@ pub async fn hide_thread_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!("Hidden thread: {}", thread_hash);
 
@@ -2068,7 +2330,11 @@ pub async fn hide_post_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2131,7 +2397,12 @@ pub async fn hide_post_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!("Hidden post: {}", data.post_hash);
     Redirect::to(&format!("/forum/{}/thread/{}", forum_hash, thread_hash)).into_response()
@@ -2158,7 +2429,11 @@ pub async fn hide_board_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2221,7 +2496,12 @@ pub async fn hide_board_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!("Hidden board: {}", board_hash);
 
@@ -2250,7 +2530,11 @@ pub async fn unhide_board_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2313,7 +2597,12 @@ pub async fn unhide_board_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(mod_action)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(mod_action),
+    )
+    .await;
 
     info!("Unhidden board: {}", board_hash);
 
@@ -2337,11 +2626,19 @@ pub async fn edit_forum_handler(
     let redirect_url = format!("/forum/{}", forum_hash);
 
     // Validate input sizes (DoS prevention)
-    if data.new_name.as_ref().map_or(false, |n| n.len() > MAX_NAME_SIZE) {
+    if data
+        .new_name
+        .as_ref()
+        .map_or(false, |n| n.len() > MAX_NAME_SIZE)
+    {
         warn!("New name too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.new_description.as_ref().map_or(false, |d| d.len() > MAX_DESCRIPTION_SIZE) {
+    if data
+        .new_description
+        .as_ref()
+        .map_or(false, |d| d.len() > MAX_DESCRIPTION_SIZE)
+    {
         warn!("New description too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2349,7 +2646,11 @@ pub async fn edit_forum_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2405,13 +2706,22 @@ pub async fn edit_forum_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(edit_node)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(edit_node),
+    )
+    .await;
 
     info!(
         "Edited forum {}: name={:?}, description={:?}",
         forum_hash,
-        new_name.as_deref().map(|s| s.chars().take(20).collect::<String>()),
-        new_description.as_deref().map(|s| s.chars().take(20).collect::<String>())
+        new_name
+            .as_deref()
+            .map(|s| s.chars().take(20).collect::<String>()),
+        new_description
+            .as_deref()
+            .map(|s| s.chars().take(20).collect::<String>())
     );
     Redirect::to(&format!("/forum/{}", forum_hash)).into_response()
 }
@@ -2425,18 +2735,27 @@ pub async fn edit_board_handler(
 ) -> impl IntoResponse {
     if !validate_csrf_token(&session, &app_state.csrf_store, &form.csrf_token) {
         warn!("CSRF validation failed for edit board");
-        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response();
+        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash))
+            .into_response();
     }
 
     let data = form.data;
     let redirect_url = format!("/forum/{}/board/{}", forum_hash, board_hash);
 
     // Validate input sizes (DoS prevention)
-    if data.new_name.as_ref().map_or(false, |n| n.len() > MAX_NAME_SIZE) {
+    if data
+        .new_name
+        .as_ref()
+        .map_or(false, |n| n.len() > MAX_NAME_SIZE)
+    {
         warn!("New name too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.new_description.as_ref().map_or(false, |d| d.len() > MAX_DESCRIPTION_SIZE) {
+    if data
+        .new_description
+        .as_ref()
+        .map_or(false, |d| d.len() > MAX_DESCRIPTION_SIZE)
+    {
         warn!("New description too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2444,7 +2763,11 @@ pub async fn edit_board_handler(
         warn!("Signing key ID too large");
         return Redirect::to(&redirect_url).into_response();
     }
-    if data.password.as_ref().map_or(false, |p| p.len() > MAX_PASSWORD_SIZE) {
+    if data
+        .password
+        .as_ref()
+        .map_or(false, |p| p.len() > MAX_PASSWORD_SIZE)
+    {
         warn!("Password too large");
         return Redirect::to(&redirect_url).into_response();
     }
@@ -2455,7 +2778,8 @@ pub async fn edit_board_handler(
 
     if new_name.is_none() && new_description.is_none() {
         error!("Edit board: no changes specified");
-        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response();
+        return Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash))
+            .into_response();
     }
 
     // Parse hashes
@@ -2513,13 +2837,22 @@ pub async fn edit_board_handler(
     };
 
     // Submit to relay
-    submit_node(&app_state.forum_persistence, &forum_hash, DagNode::from(edit_node)).await;
+    submit_node(
+        &app_state.forum_persistence,
+        &forum_hash,
+        DagNode::from(edit_node),
+    )
+    .await;
 
     info!(
         "Edited board {}: name={:?}, description={:?}",
         board_hash,
-        new_name.as_deref().map(|s| s.chars().take(20).collect::<String>()),
-        new_description.as_deref().map(|s| s.chars().take(20).collect::<String>())
+        new_name
+            .as_deref()
+            .map(|s| s.chars().take(20).collect::<String>()),
+        new_description
+            .as_deref()
+            .map(|s| s.chars().take(20).collect::<String>())
     );
     Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response()
 }

@@ -32,12 +32,12 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use std::net::SocketAddr;
 use forum_handlers::SharedForumState;
 use forum_persistence::PersistentForumState;
 use rate_limit::RateLimitLayer;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tracing::{error, info, instrument, warn};
@@ -200,9 +200,17 @@ async fn register_user(
     relay.users.insert(request.fingerprint.clone(), user);
 
     if is_update {
-        info!("Updated user registration: {} ({})", request.name, &request.fingerprint[..16]);
+        info!(
+            "Updated user registration: {} ({})",
+            request.name,
+            &request.fingerprint[..16]
+        );
     } else {
-        info!("New user registered: {} ({})", request.name, &request.fingerprint[..16]);
+        info!(
+            "New user registered: {} ({})",
+            request.name,
+            &request.fingerprint[..16]
+        );
     }
 
     (
@@ -226,8 +234,14 @@ async fn unregister_user(
     if relay.users.remove(&fingerprint).is_some() {
         // Also remove any queued messages
         relay.messages.remove(&fingerprint);
-        info!("User unregistered: {}", &fingerprint[..16.min(fingerprint.len())]);
-        (StatusCode::OK, Json(ApiResponse::success("User unregistered")))
+        info!(
+            "User unregistered: {}",
+            &fingerprint[..16.min(fingerprint.len())]
+        );
+        (
+            StatusCode::OK,
+            Json(ApiResponse::success("User unregistered")),
+        )
     } else {
         (
             StatusCode::NOT_FOUND,
@@ -303,7 +317,10 @@ async fn send_message(
     }
 
     // Get or create message queue for recipient
-    let queue = relay.messages.entry(recipient_fingerprint.clone()).or_default();
+    let queue = relay
+        .messages
+        .entry(recipient_fingerprint.clone())
+        .or_default();
 
     // Enforce queue size limit
     if queue.len() >= MAX_QUEUED_MESSAGES {
@@ -555,7 +572,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  GET    /forums/:fh/threads/:th/posts  - List posts");
 
     // Use into_make_service_with_connect_info to make client IP available for rate limiting
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

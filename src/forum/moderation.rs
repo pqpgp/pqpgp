@@ -244,6 +244,49 @@ impl ModActionContent {
         })
     }
 
+    /// Creates new move thread action content.
+    ///
+    /// This action moves a thread from its current board to a different board.
+    /// The thread's original board reference in the ThreadRoot remains unchanged
+    /// in the DAG, but this moderation action indicates the thread should be
+    /// displayed on the destination board instead.
+    ///
+    /// # Arguments
+    /// * `forum_hash` - Hash of the forum this action applies to
+    /// * `thread_hash` - Hash of the thread being moved
+    /// * `destination_board_hash` - Hash of the board to move the thread to
+    /// * `issuer_public_key` - Public key of the user issuing this action
+    /// * `parent_hashes` - Current DAG heads for causal ordering
+    ///
+    /// # Errors
+    /// Returns an error if too many parents.
+    pub fn new_move_thread_action(
+        forum_hash: ContentHash,
+        thread_hash: ContentHash,
+        destination_board_hash: ContentHash,
+        issuer_public_key: &PublicKey,
+        parent_hashes: Vec<ContentHash>,
+    ) -> Result<Self> {
+        if parent_hashes.len() > MAX_MOD_ACTION_PARENTS {
+            return Err(PqpgpError::validation(format!(
+                "Too many parent hashes: {} (max {})",
+                parent_hashes.len(),
+                MAX_MOD_ACTION_PARENTS
+            )));
+        }
+        Ok(Self {
+            node_type: NodeType::ModAction,
+            forum_hash,
+            board_hash: Some(destination_board_hash), // Destination board
+            target_node_hash: Some(thread_hash),      // Thread being moved
+            parent_hashes,
+            action: ModAction::MoveThread,
+            target_identity: Vec::new(), // Not applicable for move actions
+            issuer_identity: issuer_public_key.as_bytes(),
+            created_at: current_timestamp_millis(),
+        })
+    }
+
     /// Computes the content hash of this moderation action content.
     pub fn content_hash(&self) -> Result<ContentHash> {
         ContentHash::compute(self)
@@ -446,6 +489,55 @@ impl ModActionNode {
             forum_hash,
             board_hash,
             action,
+            issuer_public_key,
+            parent_hashes,
+        )?;
+        let content_hash = content.content_hash()?;
+        let signature = sign_data(issuer_private_key, &content, password)?;
+
+        Ok(Self {
+            content,
+            signature,
+            content_hash,
+        })
+    }
+
+    /// Creates and signs a new move thread action node.
+    ///
+    /// This action moves a thread from its current board to a different board.
+    /// The thread's original board reference in the ThreadRoot remains unchanged
+    /// in the DAG, but this moderation action indicates the thread should be
+    /// displayed on the destination board instead.
+    ///
+    /// # Arguments
+    /// * `forum_hash` - Hash of the forum this action applies to
+    /// * `thread_hash` - Hash of the thread being moved
+    /// * `destination_board_hash` - Hash of the board to move the thread to
+    /// * `issuer_public_key` - Public key of the user issuing this action
+    /// * `issuer_private_key` - Private key to sign with (must match issuer_public_key)
+    /// * `password` - Optional password if the private key is encrypted
+    /// * `parent_hashes` - Current DAG heads for causal ordering
+    ///
+    /// # Errors
+    /// Returns an error if validation fails or signing fails.
+    ///
+    /// # Note
+    /// Permission checking (whether the issuer has permission to move threads)
+    /// is not done here. It must be validated at the application layer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_move_thread_action(
+        forum_hash: ContentHash,
+        thread_hash: ContentHash,
+        destination_board_hash: ContentHash,
+        issuer_public_key: &PublicKey,
+        issuer_private_key: &crate::crypto::PrivateKey,
+        password: Option<&crate::crypto::Password>,
+        parent_hashes: Vec<ContentHash>,
+    ) -> Result<Self> {
+        let content = ModActionContent::new_move_thread_action(
+            forum_hash,
+            thread_hash,
+            destination_board_hash,
             issuer_public_key,
             parent_hashes,
         )?;

@@ -542,8 +542,8 @@ mod tests {
         let hash1 = ContentHash::from_bytes([1u8; 64]);
         let hash2 = ContentHash::from_bytes([2u8; 64]);
 
-        let response = SyncResponse::new(ContentHash::from_bytes([0u8; 64]))
-            .with_missing(vec![hash1, hash2]);
+        let response =
+            SyncResponse::new(ContentHash::from_bytes([0u8; 64])).with_missing(vec![hash1, hash2]);
 
         // Neither exists, so both should be returned
         let to_fetch = client.process_sync_response(&response);
@@ -641,8 +641,14 @@ mod tests {
 
         assert_eq!(sorted.len(), 4);
         // Find positions
-        let forum_pos = sorted.iter().position(|n| n.hash() == forum.hash()).unwrap();
-        let board_pos = sorted.iter().position(|n| n.hash() == board.hash()).unwrap();
+        let forum_pos = sorted
+            .iter()
+            .position(|n| n.hash() == forum.hash())
+            .unwrap();
+        let board_pos = sorted
+            .iter()
+            .position(|n| n.hash() == board.hash())
+            .unwrap();
         let thread_pos = sorted
             .iter()
             .position(|n| n.hash() == thread.hash())
@@ -747,10 +753,7 @@ mod tests {
             .storage()
             .store_node(&DagNode::from(forum.clone()))
             .unwrap();
-        client
-            .storage()
-            .store_node(&DagNode::from(board))
-            .unwrap();
+        client.storage().store_node(&DagNode::from(board)).unwrap();
 
         let errors = client.validate_forum(forum.hash()).unwrap();
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);

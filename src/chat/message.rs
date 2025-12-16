@@ -397,8 +397,8 @@ impl MessagePayload {
             address: None,
         };
 
-        let content = bincode::serialize(&location)
-            .map_err(|e| PqpgpError::serialization(e.to_string()))?;
+        let content =
+            bincode::serialize(&location).map_err(|e| PqpgpError::serialization(e.to_string()))?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -474,8 +474,9 @@ impl MessagePayload {
 
     /// Deserializes a payload from bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| PqpgpError::serialization(format!("Payload deserialization failed: {}", e)))
+        bincode::deserialize(bytes).map_err(|e| {
+            PqpgpError::serialization(format!("Payload deserialization failed: {}", e))
+        })
     }
 }
 
@@ -583,7 +584,9 @@ mod tests {
         // Should be expired immediately (0 seconds)
         assert!(msg.is_expired());
 
-        let msg2 = MessagePayload::text("Not secret").unwrap().with_expiration(3600);
+        let msg2 = MessagePayload::text("Not secret")
+            .unwrap()
+            .with_expiration(3600);
         assert!(!msg2.is_expired());
     }
 

@@ -54,10 +54,7 @@ impl ChatStorage {
         // Create directory if it doesn't exist
         if !base_dir.exists() {
             fs::create_dir_all(&base_dir).map_err(|e| {
-                PqpgpError::config(format!(
-                    "Failed to create storage directory: {}",
-                    e
-                ))
+                PqpgpError::config(format!("Failed to create storage directory: {}", e))
             })?;
             info!("Created storage directory: {:?}", base_dir);
         }
@@ -68,9 +65,8 @@ impl ChatStorage {
     /// Gets the storage directory path
     fn get_storage_dir() -> Result<PathBuf> {
         // Use current directory + storage subdirectory
-        let current_dir = std::env::current_dir().map_err(|e| {
-            PqpgpError::config(format!("Failed to get current directory: {}", e))
-        })?;
+        let current_dir = std::env::current_dir()
+            .map_err(|e| PqpgpError::config(format!("Failed to get current directory: {}", e)))?;
         Ok(current_dir.join(STORAGE_DIR))
     }
 
@@ -82,11 +78,7 @@ impl ChatStorage {
     }
 
     /// Saves a chat state to disk, encrypted with the user's password
-    pub fn save_state(
-        &self,
-        state: &ChatState,
-        password: &Password,
-    ) -> Result<()> {
+    pub fn save_state(&self, state: &ChatState, password: &Password) -> Result<()> {
         let fingerprint = match state.our_fingerprint() {
             Some(fp) => fp,
             None => return Ok(()), // Nothing to save if no identity
@@ -94,9 +86,8 @@ impl ChatStorage {
 
         // Serialize the state
         let serializable = self.state_to_serializable(state)?;
-        let state_bytes = bincode::serialize(&serializable).map_err(|e| {
-            PqpgpError::config(format!("Failed to serialize state: {}", e))
-        })?;
+        let state_bytes = bincode::serialize(&serializable)
+            .map_err(|e| PqpgpError::config(format!("Failed to serialize state: {}", e)))?;
 
         // Encrypt with password
         let encrypted = EncryptedPrivateKey::encrypt(&state_bytes, password)?;
@@ -108,25 +99,19 @@ impl ChatStorage {
         };
 
         // Serialize and write to file
-        let file_bytes = bincode::serialize(&user_data).map_err(|e| {
-            PqpgpError::config(format!("Failed to serialize user data: {}", e))
-        })?;
+        let file_bytes = bincode::serialize(&user_data)
+            .map_err(|e| PqpgpError::config(format!("Failed to serialize user data: {}", e)))?;
 
         let file_path = self.user_file_path(&fingerprint);
-        fs::write(&file_path, file_bytes).map_err(|e| {
-            PqpgpError::config(format!("Failed to write state file: {}", e))
-        })?;
+        fs::write(&file_path, file_bytes)
+            .map_err(|e| PqpgpError::config(format!("Failed to write state file: {}", e)))?;
 
         info!("Saved chat state for {}", &fingerprint[..16]);
         Ok(())
     }
 
     /// Loads a chat state from disk using the user's password
-    pub fn load_state(
-        &self,
-        fingerprint: &str,
-        password: &Password,
-    ) -> Result<ChatState> {
+    pub fn load_state(&self, fingerprint: &str, password: &Password) -> Result<ChatState> {
         let file_path = self.user_file_path(fingerprint);
 
         if !file_path.exists() {
@@ -134,23 +119,19 @@ impl ChatStorage {
         }
 
         // Read file
-        let file_bytes = fs::read(&file_path).map_err(|e| {
-            PqpgpError::config(format!("Failed to read state file: {}", e))
-        })?;
+        let file_bytes = fs::read(&file_path)
+            .map_err(|e| PqpgpError::config(format!("Failed to read state file: {}", e)))?;
 
         // Deserialize encrypted data
-        let user_data: EncryptedUserData = bincode::deserialize(&file_bytes).map_err(|e| {
-            PqpgpError::config(format!("Failed to deserialize user data: {}", e))
-        })?;
+        let user_data: EncryptedUserData = bincode::deserialize(&file_bytes)
+            .map_err(|e| PqpgpError::config(format!("Failed to deserialize user data: {}", e)))?;
 
         // Decrypt with password
         let state_bytes = user_data.encrypted_state.decrypt(password)?;
 
         // Deserialize state
-        let serializable: SerializableChatState =
-            bincode::deserialize(&state_bytes).map_err(|e| {
-                PqpgpError::config(format!("Failed to deserialize state: {}", e))
-            })?;
+        let serializable: SerializableChatState = bincode::deserialize(&state_bytes)
+            .map_err(|e| PqpgpError::config(format!("Failed to deserialize state: {}", e)))?;
 
         // Convert back to ChatState
         let state = self.serializable_to_state(serializable)?;
@@ -167,9 +148,8 @@ impl ChatStorage {
             return Ok(fingerprints);
         }
 
-        let entries = fs::read_dir(&self.base_dir).map_err(|e| {
-            PqpgpError::config(format!("Failed to read storage directory: {}", e))
-        })?;
+        let entries = fs::read_dir(&self.base_dir)
+            .map_err(|e| PqpgpError::config(format!("Failed to read storage directory: {}", e)))?;
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -200,9 +180,8 @@ impl ChatStorage {
     pub fn delete_state(&self, fingerprint: &str) -> Result<()> {
         let file_path = self.user_file_path(fingerprint);
         if file_path.exists() {
-            fs::remove_file(&file_path).map_err(|e| {
-                PqpgpError::config(format!("Failed to delete state file: {}", e))
-            })?;
+            fs::remove_file(&file_path)
+                .map_err(|e| PqpgpError::config(format!("Failed to delete state file: {}", e)))?;
             info!("Deleted chat state for {}", &fingerprint[..16]);
         }
         Ok(())

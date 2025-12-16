@@ -35,6 +35,10 @@ pub struct ForumPermissions {
     hidden_threads: HashSet<ContentHash>,
     /// Set of hidden post hashes.
     hidden_posts: HashSet<ContentHash>,
+    /// Thread moves: maps thread hash to current board hash.
+    /// If a thread has been moved, this contains its new location.
+    /// The original board in ThreadRoot is the source; this tracks the destination.
+    moved_threads: HashMap<ContentHash, ContentHash>,
 }
 
 impl ForumPermissions {
@@ -55,6 +59,7 @@ impl ForumPermissions {
             hidden_boards: HashSet::new(),
             hidden_threads: HashSet::new(),
             hidden_posts: HashSet::new(),
+            moved_threads: HashMap::new(),
         }
     }
 
@@ -183,9 +188,9 @@ impl ForumPermissions {
                 self.hidden_posts.remove(target_hash);
             }
             ModAction::HideBoard => {
-                let board_hash = action.board_hash().ok_or_else(|| {
-                    PqpgpError::validation("HideBoard requires a board hash")
-                })?;
+                let board_hash = action
+                    .board_hash()
+                    .ok_or_else(|| PqpgpError::validation("HideBoard requires a board hash"))?;
                 // Owner or forum-level moderator can hide boards
                 let issuer = action.issuer_identity();
                 if issuer != self.owner_identity && !self.moderators.contains(issuer) {
@@ -196,9 +201,9 @@ impl ForumPermissions {
                 self.hidden_boards.insert(*board_hash);
             }
             ModAction::UnhideBoard => {
-                let board_hash = action.board_hash().ok_or_else(|| {
-                    PqpgpError::validation("UnhideBoard requires a board hash")
-                })?;
+                let board_hash = action
+                    .board_hash()
+                    .ok_or_else(|| PqpgpError::validation("UnhideBoard requires a board hash"))?;
                 // Owner or forum-level moderator can unhide boards
                 let issuer = action.issuer_identity();
                 if issuer != self.owner_identity && !self.moderators.contains(issuer) {
@@ -207,6 +212,22 @@ impl ForumPermissions {
                     ));
                 }
                 self.hidden_boards.remove(board_hash);
+            }
+            ModAction::MoveThread => {
+                let thread_hash = action.target_node_hash().ok_or_else(|| {
+                    PqpgpError::validation("MoveThread requires a target thread hash")
+                })?;
+                let dest_board_hash = action.board_hash().ok_or_else(|| {
+                    PqpgpError::validation("MoveThread requires a destination board hash")
+                })?;
+                // Owner or forum-level moderator can move threads
+                let issuer = action.issuer_identity();
+                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                    return Err(PqpgpError::validation(
+                        "Only the forum owner or moderators can move threads",
+                    ));
+                }
+                self.moved_threads.insert(*thread_hash, *dest_board_hash);
             }
         }
 
@@ -360,6 +381,29 @@ impl ForumPermissions {
     pub fn can_hide_content(&self, identity: &[u8]) -> bool {
         self.is_owner(identity) || self.is_moderator(identity)
     }
+
+    /// Returns the current board hash for a thread, considering any moves.
+    ///
+    /// If the thread has been moved, returns the destination board hash.
+    /// If the thread has not been moved, returns None (use the original board from ThreadRoot).
+    pub fn get_thread_current_board(&self, thread_hash: &ContentHash) -> Option<&ContentHash> {
+        self.moved_threads.get(thread_hash)
+    }
+
+    /// Returns true if the thread has been moved from its original board.
+    pub fn is_thread_moved(&self, thread_hash: &ContentHash) -> bool {
+        self.moved_threads.contains_key(thread_hash)
+    }
+
+    /// Returns the number of moved threads.
+    pub fn moved_thread_count(&self) -> usize {
+        self.moved_threads.len()
+    }
+
+    /// Returns an iterator over all moved threads (thread_hash, destination_board_hash).
+    pub fn moved_threads(&self) -> impl Iterator<Item = (&ContentHash, &ContentHash)> {
+        self.moved_threads.iter()
+    }
 }
 
 /// Builds forum permissions by replaying nodes from the DAG.
@@ -483,7 +527,9 @@ mod tests {
         )
         .expect("Failed to create mod action");
 
-        permissions.apply_action(&action).expect("Failed to apply action");
+        permissions
+            .apply_action(&action)
+            .expect("Failed to apply action");
 
         assert!(permissions.is_moderator(mod_keypair.public_key().as_bytes().as_slice()));
         assert_eq!(permissions.moderator_count(), 2);

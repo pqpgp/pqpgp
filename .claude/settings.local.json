@@ -11,7 +11,10 @@
       "Bash(cargo expand:*)",
       "Bash(cargo doc:*)",
       "Bash(cargo search:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

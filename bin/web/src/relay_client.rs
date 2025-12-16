@@ -121,20 +121,21 @@ impl RelayClient {
             prekey_bundle,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request).send().await?;
 
         if response.status().is_success() {
-            info!("Registered user on relay: {} ({})", name, &fingerprint[..16.min(fingerprint.len())]);
+            info!(
+                "Registered user on relay: {} ({})",
+                name,
+                &fingerprint[..16.min(fingerprint.len())]
+            );
             Ok(())
         } else {
             let api_response: ApiResponse = response.json().await?;
             Err(RelayClientError::RelayError(
-                api_response.error.unwrap_or_else(|| "Unknown error".to_string()),
+                api_response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             ))
         }
     }
@@ -148,12 +149,17 @@ impl RelayClient {
         let response = self.client.delete(&url).send().await?;
 
         if response.status().is_success() {
-            info!("Unregistered user from relay: {}", &fingerprint[..16.min(fingerprint.len())]);
+            info!(
+                "Unregistered user from relay: {}",
+                &fingerprint[..16.min(fingerprint.len())]
+            );
             Ok(())
         } else {
             let api_response: ApiResponse = response.json().await?;
             Err(RelayClientError::RelayError(
-                api_response.error.unwrap_or_else(|| "Unknown error".to_string()),
+                api_response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             ))
         }
     }
@@ -177,7 +183,10 @@ impl RelayClient {
     /// Gets a specific user's information
     #[allow(dead_code)]
     #[instrument(skip(self))]
-    pub async fn get_user(&self, fingerprint: &str) -> Result<Option<RegisteredUser>, RelayClientError> {
+    pub async fn get_user(
+        &self,
+        fingerprint: &str,
+    ) -> Result<Option<RegisteredUser>, RelayClientError> {
         let url = format!("{}/users/{}", self.base_url, fingerprint);
 
         let response = self.client.get(&url).send().await?;
@@ -207,12 +216,7 @@ impl RelayClient {
             encrypted_data,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&request).send().await?;
 
         if response.status().is_success() {
             info!(
@@ -224,7 +228,9 @@ impl RelayClient {
         } else {
             let api_response: ApiResponse = response.json().await?;
             Err(RelayClientError::RelayError(
-                api_response.error.unwrap_or_else(|| "Unknown error".to_string()),
+                api_response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             ))
         }
     }
