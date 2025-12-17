@@ -546,10 +546,12 @@ Invalid nodes are rejected and not stored, protecting against malicious relays.
 bin/relay/
 ├── Cargo.toml           # Relay server dependencies (axum, rocksdb, reqwest)
 └── src/
-    ├── main.rs          # Message relay server + forum router
-    ├── forum_handlers.rs # Forum API handlers with validation
-    ├── forum_state.rs   # Forum DAG state management
-    ├── forum_persistence.rs # RocksDB-backed persistence
+    ├── main.rs          # Message relay server + router setup
+    ├── forum/           # Forum module
+    │   ├── mod.rs       # Module exports
+    │   ├── handlers.rs  # Forum API handlers with validation
+    │   ├── state.rs     # Forum DAG state management
+    │   └── persistence.rs # RocksDB-backed persistence
     ├── peer_sync.rs     # Relay-to-relay synchronization
     └── rate_limit.rs    # IP-based rate limiting middleware
 

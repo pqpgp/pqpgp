@@ -19,7 +19,7 @@
 //!
 //! The relay doesn't trust peer data - it verifies everything.
 
-use crate::forum_handlers::SharedForumState;
+use crate::forum::SharedForumState;
 use pqpgp::forum::{ContentHash, DagNode, FetchNodesRequest, FetchNodesResponse, SyncRequest};
 use reqwest::Client;
 use std::collections::HashSet;

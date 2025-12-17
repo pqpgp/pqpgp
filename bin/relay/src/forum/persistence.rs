@@ -15,7 +15,7 @@
 //! Composite keys with forum hash prefix enable efficient per-forum iteration
 //! using RocksDB's prefix seek functionality.
 
-use crate::forum_state::{ForumRelayState, ForumState};
+use super::state::{ForumRelayState, ForumState};
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{validate_node, ContentHash, DagNode, ForumGenesis, ValidationContext};

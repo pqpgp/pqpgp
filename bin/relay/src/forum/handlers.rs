@@ -23,7 +23,7 @@
 //! Hiding is a display-level moderation action, not data deletion. The relay stores
 //! all valid nodes; clients are responsible for respecting hidden flags in their UI.
 
-use crate::forum_persistence::PersistentForumState;
+use super::persistence::PersistentForumState;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,

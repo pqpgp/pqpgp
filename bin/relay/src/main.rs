@@ -29,9 +29,7 @@
 //! pqpgp-relay --peers http://relay1.example.com --sync-interval 120
 //! ```
 
-mod forum_handlers;
-mod forum_persistence;
-mod forum_state;
+mod forum;
 mod peer_sync;
 mod rate_limit;
 
@@ -42,8 +40,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use forum_handlers::SharedForumState;
-use forum_persistence::PersistentForumState;
+use forum::{PersistentForumState, SharedForumState};
 use rate_limit::RateLimitLayer;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -514,32 +511,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build forum router with rate limiting
     // Write operations (create forum, sync, submit nodes)
     let forum_write_router = Router::new()
-        .route("/", post(forum_handlers::create_forum))
-        .route("/sync", post(forum_handlers::sync_forum))
-        .route("/nodes/fetch", post(forum_handlers::fetch_nodes))
-        .route("/nodes/submit", post(forum_handlers::submit_node))
+        .route("/", post(forum::handlers::create_forum))
+        .route("/sync", post(forum::handlers::sync_forum))
+        .route("/nodes/fetch", post(forum::handlers::fetch_nodes))
+        .route("/nodes/submit", post(forum::handlers::submit_node))
         .with_state(forum_state.clone())
         .layer(write_rate_limit);
 
     // Read operations (list forums, get forum, export, etc.)
     let forum_read_router = Router::new()
-        .route("/", get(forum_handlers::list_forums))
-        .route("/stats", get(forum_handlers::forum_stats))
-        .route("/:hash", get(forum_handlers::get_forum))
-        .route("/:hash/export", get(forum_handlers::export_forum))
-        .route("/:hash/boards", get(forum_handlers::list_boards))
-        .route("/:hash/moderators", get(forum_handlers::list_moderators))
+        .route("/", get(forum::handlers::list_forums))
+        .route("/stats", get(forum::handlers::forum_stats))
+        .route("/:hash", get(forum::handlers::get_forum))
+        .route("/:hash/export", get(forum::handlers::export_forum))
+        .route("/:hash/boards", get(forum::handlers::list_boards))
+        .route("/:hash/moderators", get(forum::handlers::list_moderators))
         .route(
             "/:forum_hash/boards/:board_hash/moderators",
-            get(forum_handlers::list_board_moderators),
+            get(forum::handlers::list_board_moderators),
         )
         .route(
             "/:forum_hash/boards/:board_hash/threads",
-            get(forum_handlers::list_threads),
+            get(forum::handlers::list_threads),
         )
         .route(
             "/:forum_hash/threads/:thread_hash/posts",
-            get(forum_handlers::list_posts),
+            get(forum::handlers::list_posts),
         )
         .with_state(forum_state.clone())
         .layer(read_rate_limit);
