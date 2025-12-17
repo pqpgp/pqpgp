@@ -241,11 +241,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     // Set up session management
-    // Note: This demo runs on localhost without HTTPS. For deployment with HTTPS,
-    // set with_secure(true) to ensure cookies are only sent over secure connections.
+    // SECURITY FIX: Detect HTTPS mode from environment and set secure cookie flag accordingly
+    // Set PQPGP_SECURE_COOKIES=true when deploying behind HTTPS
+    let use_secure_cookies = std::env::var("PQPGP_SECURE_COOKIES")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    if use_secure_cookies {
+        info!("Secure cookies enabled - cookies will only be sent over HTTPS");
+    } else {
+        warn!("Secure cookies disabled - set PQPGP_SECURE_COOKIES=true for production");
+    }
+
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false)
+        .with_secure(use_secure_cookies)
         .with_same_site(tower_sessions::cookie::SameSite::Lax)
         .with_name("pqpgp-session")
         .with_http_only(true);

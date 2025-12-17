@@ -3967,8 +3967,14 @@ pub async fn send_pm_handler(
             // Check if session already exists, if not create it
             let conv_id_bytes = sealed_result.conversation_id;
             if conversation_manager.get_session(&conv_id_bytes).is_none() {
-                // Get the recipient's signed prekey for Double Ratchet initialization
-                let peer_ratchet_key = Some(recipient_identity.content.signed_prekey.clone());
+                // Get the recipient's signed prekey public key bytes for Double Ratchet initialization
+                let peer_ratchet_key = Some(
+                    recipient_identity
+                        .content
+                        .signed_prekey
+                        .public_key()
+                        .to_vec(),
+                );
                 let session = ConversationSession::new_initiator(
                     conv_id_bytes,
                     *sealed_result.conversation_key,

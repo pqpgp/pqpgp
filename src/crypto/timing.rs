@@ -38,6 +38,9 @@ impl TimingSafe {
     ///
     /// Compares arrays up to a maximum length, padding shorter arrays with zeros.
     /// This prevents length-based timing attacks.
+    ///
+    /// SECURITY: This function executes the same operations regardless of input,
+    /// ensuring no timing information leaks about array lengths or contents.
     pub fn bytes_equal_padded(a: &[u8], b: &[u8], max_len: usize) -> bool {
         let mut padded_a = vec![0u8; max_len];
         let mut padded_b = vec![0u8; max_len];
@@ -48,18 +51,30 @@ impl TimingSafe {
         padded_a[..a_len].copy_from_slice(&a[..a_len]);
         padded_b[..b_len].copy_from_slice(&b[..b_len]);
 
-        let result = padded_a.ct_eq(&padded_b).into();
+        // SECURITY FIX: Also check lengths match in constant time
+        // This prevents leaking length information through early return
+        let lengths_match = Choice::from((a_len == b_len) as u8);
+        let contents_match = padded_a.ct_eq(&padded_b);
 
         // Clear sensitive data
         padded_a.zeroize();
         padded_b.zeroize();
 
-        result
+        // Both conditions must be true, computed in constant time
+        (lengths_match & contents_match).into()
     }
 
     /// Constant-time string comparison
     pub fn string_equal(a: &str, b: &str) -> bool {
         Self::bytes_equal(a.as_bytes(), b.as_bytes())
+    }
+
+    /// Constant-time identity comparison for cryptographic keys.
+    ///
+    /// Use this for comparing identity bytes in authorization checks
+    /// to prevent timing attacks that could reveal identity information.
+    pub fn identity_equal(a: &[u8], b: &[u8]) -> bool {
+        Self::bytes_equal(a, b)
     }
 
     /// Constant-time selection between two values

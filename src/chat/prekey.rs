@@ -520,14 +520,22 @@ impl PreKeyGenerator {
     ///
     /// # Arguments
     /// * `id` - The ID of the prekey that was used
+    ///
+    /// # Security
+    /// SECURITY FIX: Uses ID-based lookup for both public and private key vectors
+    /// to prevent index misalignment if they become out of sync.
     pub fn consume_one_time_prekey(&mut self, id: PreKeyId) -> Option<OneTimePreKeyPrivate> {
-        if let Some(pos) = self.one_time_prekeys.iter().position(|p| p.id == id) {
-            self.one_time_prekeys.remove(pos);
-            if pos < self.one_time_prekeys_private.len() {
-                return Some(self.one_time_prekeys_private.remove(pos));
-            }
-        }
-        None
+        // Find and remove from public keys by ID
+        let public_pos = self.one_time_prekeys.iter().position(|p| p.id == id)?;
+        self.one_time_prekeys.remove(public_pos);
+
+        // Find and remove from private keys by ID (not by index)
+        // This ensures we get the correct private key even if vectors are misaligned
+        let private_pos = self
+            .one_time_prekeys_private
+            .iter()
+            .position(|p| p.id == id)?;
+        Some(self.one_time_prekeys_private.remove(private_pos))
     }
 
     /// Generates additional one-time prekeys.

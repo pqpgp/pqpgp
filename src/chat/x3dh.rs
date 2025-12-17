@@ -54,6 +54,9 @@ use zeroize::{ZeroizeOnDrop, Zeroizing};
 /// The size of a root key in bytes.
 pub const ROOT_KEY_SIZE: usize = 32;
 
+/// ML-KEM-1024 ciphertext size in bytes.
+pub const MLKEM1024_CIPHERTEXT_SIZE: usize = 1568;
+
 /// Output of X3DH key agreement - the initial root key for the double ratchet.
 #[derive(Clone, ZeroizeOnDrop)]
 pub struct X3DHSharedSecret {
@@ -327,6 +330,14 @@ impl X3DHReceiver {
         let spk_secret = our_signed_prekey.as_mlkem_secret()?;
 
         // Step 3: Reconstruct ciphertexts
+        // SECURITY FIX: Validate ciphertext lengths before parsing
+        if their_keys.signed_prekey_ciphertext.len() != MLKEM1024_CIPHERTEXT_SIZE {
+            return Err(PqpgpError::session(format!(
+                "Invalid signed prekey ciphertext length: expected {}, got {}",
+                MLKEM1024_CIPHERTEXT_SIZE,
+                their_keys.signed_prekey_ciphertext.len()
+            )));
+        }
         let ct1 = mlkem1024::Ciphertext::from_bytes(&their_keys.signed_prekey_ciphertext)
             .map_err(|_| PqpgpError::session("Invalid signed prekey ciphertext"))?;
 
@@ -337,6 +348,14 @@ impl X3DHReceiver {
         let ss2 = if let (Some(ct_bytes), Some(opk)) =
             (&their_keys.one_time_prekey_ciphertext, our_one_time_prekey)
         {
+            // SECURITY FIX: Validate OTP ciphertext length before parsing
+            if ct_bytes.len() != MLKEM1024_CIPHERTEXT_SIZE {
+                return Err(PqpgpError::session(format!(
+                    "Invalid one-time prekey ciphertext length: expected {}, got {}",
+                    MLKEM1024_CIPHERTEXT_SIZE,
+                    ct_bytes.len()
+                )));
+            }
             let ct2 = mlkem1024::Ciphertext::from_bytes(ct_bytes)
                 .map_err(|_| PqpgpError::session("Invalid one-time prekey ciphertext"))?;
             let opk_secret = opk.as_mlkem_secret()?;

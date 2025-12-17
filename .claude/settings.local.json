@@ -17,7 +17,10 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(wc:*)",
-      "Bash(RUST_BACKTRACE=1 cargo test:*)"
+      "Bash(RUST_BACKTRACE=1 cargo test:*)",
+      "Bash(grep:*)",
+      "Bash(xargs:*)",
+      "Bash(cat:*)"
     ]
   }
 }

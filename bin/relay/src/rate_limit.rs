@@ -226,6 +226,7 @@ where
         let client_ip = extract_client_ip(&req);
 
         // Check rate limit
+        // SECURITY: Default to DENY if IP cannot be determined to prevent bypass attacks
         let allowed = if let Some(ip) = client_ip {
             let mut state = self.state.write().unwrap_or_else(|poisoned| {
                 warn!("Rate limit state was poisoned, recovering");
@@ -233,9 +234,11 @@ where
             });
             state.check_rate_limit(ip)
         } else {
-            // If we can't determine the IP, allow the request but log it
-            warn!("Could not determine client IP for rate limiting");
-            true
+            // SECURITY FIX: Default to DENY when IP cannot be determined
+            // This prevents attackers from bypassing rate limiting by spoofing headers
+            // or using proxies that don't properly forward client IP
+            warn!("Could not determine client IP for rate limiting - denying request for security");
+            false
         };
 
         if !allowed {

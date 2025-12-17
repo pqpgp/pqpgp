@@ -55,6 +55,10 @@ pub const MESSAGE_KEY_SIZE: usize = 32;
 /// Maximum number of skipped message keys to store.
 pub const MAX_SKIP: u32 = 1000;
 
+/// Maximum age of skipped keys in seconds (24 hours).
+/// Skipped keys older than this will be cleaned up.
+pub const MAX_SKIPPED_KEY_AGE_SECS: u64 = 24 * 60 * 60;
+
 /// A root key used in the KEM ratchet.
 #[derive(Clone, ZeroizeOnDrop)]
 pub struct RootKey {
@@ -299,6 +303,20 @@ struct SkippedKeyId {
     message_number: u32,
 }
 
+/// A skipped message key with its creation timestamp.
+/// SECURITY FIX: Added timestamp for automatic expiration of old skipped keys.
+///
+/// Note: This struct is not serialized since skipped_keys has #[serde(skip)].
+/// This is intentional - skipped keys are lost on session reload, which is
+/// acceptable because they're only needed for short-term out-of-order delivery.
+#[derive(Clone)]
+struct SkippedKeyEntry {
+    /// The message key
+    key: MessageKey,
+    /// Unix timestamp when this key was skipped (for expiration)
+    created_at: u64,
+}
+
 /// Complete state for the Double Ratchet.
 #[derive(Serialize, Deserialize)]
 pub struct RatchetState {
@@ -323,8 +341,9 @@ pub struct RatchetState {
     /// Previous sending chain length (for header)
     previous_chain_length: u32,
     /// Skipped message keys (for out-of-order delivery)
+    /// SECURITY FIX: Now uses SkippedKeyEntry with timestamps for automatic expiration
     #[serde(skip)]
-    skipped_keys: HashMap<SkippedKeyId, MessageKey>,
+    skipped_keys: HashMap<SkippedKeyId, SkippedKeyEntry>,
     /// Pending KEM ciphertext to be sent with the next message
     /// This is set during initialization and used for the first message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -586,8 +605,8 @@ impl RatchetState {
             ratchet_key: their_ratchet_key.as_bytes().to_vec(),
             message_number,
         };
-        if let Some(key) = self.skipped_keys.remove(&skip_id) {
-            return Ok(key);
+        if let Some(entry) = self.skipped_keys.remove(&skip_id) {
+            return Ok(entry.key);
         }
 
         // Check if this is a new ratchet key
@@ -708,13 +727,25 @@ impl RatchetState {
             .take()
             .ok_or_else(|| PqpgpError::session("No receiving chain to skip"))?;
 
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
         for _ in start..end {
             let (new_chain, message_key) = chain.advance()?;
             let skip_id = SkippedKeyId {
                 ratchet_key: their_key.as_bytes().to_vec(),
                 message_number: chain.index(),
             };
-            self.skipped_keys.insert(skip_id, message_key);
+            // Store with timestamp for expiration
+            self.skipped_keys.insert(
+                skip_id,
+                SkippedKeyEntry {
+                    key: message_key,
+                    created_at: now,
+                },
+            );
             chain = new_chain;
         }
 
@@ -756,15 +787,48 @@ impl RatchetState {
     }
 
     /// Cleans up old skipped keys (should be called periodically).
+    ///
+    /// SECURITY FIX: Now removes expired keys based on timestamps in addition
+    /// to enforcing the max_to_keep limit.
     pub fn cleanup_old_skipped_keys(&mut self, max_to_keep: usize) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        // First, remove all expired keys
+        self.skipped_keys
+            .retain(|_, entry| now.saturating_sub(entry.created_at) < MAX_SKIPPED_KEY_AGE_SECS);
+
+        // Then enforce the max count limit if still exceeded
         while self.skipped_keys.len() > max_to_keep {
-            // Remove the oldest key (arbitrary selection since HashMap has no order)
-            if let Some(key) = self.skipped_keys.keys().next().cloned() {
+            // Find and remove the oldest key
+            let oldest_key = self
+                .skipped_keys
+                .iter()
+                .min_by_key(|(_, entry)| entry.created_at)
+                .map(|(id, _)| id.clone());
+
+            if let Some(key) = oldest_key {
                 self.skipped_keys.remove(&key);
             } else {
                 break;
             }
         }
+    }
+
+    /// Removes all expired skipped keys.
+    /// Call this periodically to prevent memory accumulation.
+    pub fn expire_old_skipped_keys(&mut self) -> usize {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let before_count = self.skipped_keys.len();
+        self.skipped_keys
+            .retain(|_, entry| now.saturating_sub(entry.created_at) < MAX_SKIPPED_KEY_AGE_SECS);
+        before_count - self.skipped_keys.len()
     }
 
     /// Generates a KEM ciphertext for the current ratchet step.

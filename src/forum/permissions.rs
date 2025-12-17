@@ -10,6 +10,7 @@
 //! - **Board Moderator**: Can only moderate threads within their assigned board
 //! - **Member**: Any authenticated user, can create threads and posts
 
+use crate::crypto::TimingSafe;
 use crate::error::{PqpgpError, Result};
 use crate::forum::{ContentHash, DagNode, ForumGenesis, ModAction, ModActionNode};
 use std::collections::{HashMap, HashSet};
@@ -77,10 +78,15 @@ impl ForumPermissions {
             ));
         }
 
+        // SECURITY: Use constant-time comparison for all identity checks
+        let issuer = action.issuer_identity();
+        let is_owner = self.is_owner(issuer);
+        let is_mod = self.is_moderator(issuer);
+
         match action.action() {
             ModAction::AddModerator => {
                 // Only owner can add forum-level moderators
-                if action.issuer_identity() != self.owner_identity {
+                if !is_owner {
                     return Err(PqpgpError::validation(
                         "Only the forum owner can add forum-level moderators",
                     ));
@@ -89,14 +95,14 @@ impl ForumPermissions {
             }
             ModAction::RemoveModerator => {
                 // Only owner can remove forum-level moderators
-                if action.issuer_identity() != self.owner_identity {
+                if !is_owner {
                     return Err(PqpgpError::validation(
                         "Only the forum owner can remove forum-level moderators",
                     ));
                 }
                 let target = action.target_identity().to_vec();
-                // Cannot remove the owner as moderator
-                if target == self.owner_identity {
+                // Cannot remove the owner as moderator (use constant-time comparison)
+                if TimingSafe::identity_equal(&target, &self.owner_identity) {
                     return Err(PqpgpError::validation(
                         "Cannot remove the forum owner as moderator",
                     ));
@@ -108,8 +114,7 @@ impl ForumPermissions {
                     PqpgpError::validation("AddBoardModerator requires a board hash")
                 })?;
                 // Owner or forum-level moderator can add board moderators
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can add board moderators",
                     ));
@@ -124,8 +129,7 @@ impl ForumPermissions {
                     PqpgpError::validation("RemoveBoardModerator requires a board hash")
                 })?;
                 // Owner or forum-level moderator can remove board moderators
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can remove board moderators",
                     ));
@@ -140,8 +144,7 @@ impl ForumPermissions {
                 })?;
                 // Owner or forum-level moderator can hide threads
                 // Note: Authors can also hide their own content, but that's checked at a higher level
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner, moderators, or the author can hide threads",
                     ));
@@ -153,8 +156,7 @@ impl ForumPermissions {
                     PqpgpError::validation("UnhideThread requires a target node hash")
                 })?;
                 // Owner or forum-level moderator can unhide threads
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can unhide threads",
                     ));
@@ -166,8 +168,7 @@ impl ForumPermissions {
                     PqpgpError::validation("HidePost requires a target node hash")
                 })?;
                 // Owner or forum-level moderator can hide posts
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner, moderators, or the author can hide posts",
                     ));
@@ -179,8 +180,7 @@ impl ForumPermissions {
                     PqpgpError::validation("UnhidePost requires a target node hash")
                 })?;
                 // Owner or forum-level moderator can unhide posts
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can unhide posts",
                     ));
@@ -192,8 +192,7 @@ impl ForumPermissions {
                     .board_hash()
                     .ok_or_else(|| PqpgpError::validation("HideBoard requires a board hash"))?;
                 // Owner or forum-level moderator can hide boards
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can hide boards",
                     ));
@@ -205,8 +204,7 @@ impl ForumPermissions {
                     .board_hash()
                     .ok_or_else(|| PqpgpError::validation("UnhideBoard requires a board hash"))?;
                 // Owner or forum-level moderator can unhide boards
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can unhide boards",
                     ));
@@ -221,8 +219,7 @@ impl ForumPermissions {
                     PqpgpError::validation("MoveThread requires a destination board hash")
                 })?;
                 // Owner or forum-level moderator can move threads
-                let issuer = action.issuer_identity();
-                if issuer != self.owner_identity && !self.moderators.contains(issuer) {
+                if !is_owner && !is_mod {
                     return Err(PqpgpError::validation(
                         "Only the forum owner or moderators can move threads",
                     ));
@@ -245,20 +242,35 @@ impl ForumPermissions {
     }
 
     /// Returns true if the given identity is the forum owner.
+    ///
+    /// SECURITY: Uses constant-time comparison to prevent timing attacks
+    /// that could reveal identity information.
     pub fn is_owner(&self, identity: &[u8]) -> bool {
-        self.owner_identity == identity
+        TimingSafe::identity_equal(&self.owner_identity, identity)
     }
 
     /// Returns true if the given identity is a forum-level moderator.
+    ///
+    /// SECURITY: Uses constant-time comparison for each moderator check.
     pub fn is_moderator(&self, identity: &[u8]) -> bool {
-        self.moderators.contains(identity)
+        // Use constant-time comparison for each moderator
+        // Note: The number of moderators checked leaks some timing info,
+        // but the identity bytes themselves are compared constant-time
+        self.moderators
+            .iter()
+            .any(|mod_id| TimingSafe::identity_equal(mod_id, identity))
     }
 
     /// Returns true if the given identity is a board-level moderator for the specified board.
+    ///
+    /// SECURITY: Uses constant-time comparison for identity checks.
     pub fn is_board_moderator(&self, identity: &[u8], board_hash: &ContentHash) -> bool {
         self.board_moderators
             .get(board_hash)
-            .map(|mods| mods.contains(identity))
+            .map(|mods| {
+                mods.iter()
+                    .any(|mod_id| TimingSafe::identity_equal(mod_id, identity))
+            })
             .unwrap_or(false)
     }
 

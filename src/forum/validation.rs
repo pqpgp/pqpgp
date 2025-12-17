@@ -455,6 +455,24 @@ pub fn validate_post(post: &Post, ctx: &ValidationContext) -> Result<ValidationR
         }
     }
 
+    // SECURITY FIX: Validate timestamp monotonicity with parent posts
+    // A post cannot have an earlier timestamp than any of its parent posts
+    for parent_hash in post.parent_hashes() {
+        if let Some(parent_node) = ctx.get_node(parent_hash) {
+            if parent_node.node_type() == NodeType::Post {
+                if let Some(parent_post) = parent_node.as_post() {
+                    if post.created_at() < parent_post.created_at() {
+                        result.add_error(format!(
+                            "Post timestamp {} is before parent post timestamp {}",
+                            post.created_at(),
+                            parent_post.created_at()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     Ok(result)
 }
 

@@ -7,19 +7,19 @@
 1. **Verify compilation** by running:
 
    ```bash
-   cargo check
+   cargo check --workspace
    ```
 
 2. **Run all tests** and ensure they pass:
 
    ```bash
-   cargo test --release
+   cargo test --workspace --release
    ```
 
 3. **Run clippy** to ensure code quality standards:
 
    ```bash
-   cargo clippy -- -D warnings
+   cargo clippy --workspace -- -D warnings
    ```
 
 4. If you're working on multiple todos, verify compilation, tests, and clippy after each significant change or todo completion.
@@ -32,9 +32,9 @@
 
 - Always verify that your changes don't break existing functionality
 - Run tests incrementally when making multiple changes
-- Use `cargo check` for quick compilation verification during development
-- Use `cargo test --release` for full test suite verification before completing tasks
-- Use `cargo clippy -- -D warnings` to maintain code quality standards
+- Use `cargo check --workspace` for quick compilation verification during development
+- Use `cargo test --workspace --release` for full test suite verification before completing tasks
+- Use `cargo clippy --workspace -- -D warnings` to maintain code quality standards
 
 ## Code Quality Standards
 
@@ -101,7 +101,7 @@
    - Identify exactly where and how it will be used
    - Implement the caller/integration point first
    - Verify the new code is actually exercised by existing functionality
-   - Run `cargo check --tests` to ensure no "unused" warnings for your additions
+   - Run `cargo check --workspace --tests` to ensure no "unused" warnings for your additions
 
 3. **Maintenance Integration**: New maintenance or cleanup functions:
    - **MUST** be called from appropriate places (startup, periodic tasks, shutdown, etc.)
