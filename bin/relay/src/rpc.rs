@@ -28,6 +28,7 @@ use base64::Engine;
 use pqpgp::forum::constants::{
     MAX_EXPORT_PAGE_SIZE, MAX_FETCH_BATCH_SIZE, MAX_NODES_PER_FORUM, MAX_SYNC_MISSING_HASHES,
 };
+use pqpgp::forum::dag_ops::{compute_missing, nodes_in_topological_order};
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::rpc_client::{
     ExportParams, ExportResult, FetchParams, FetchResult, ForumInfo, NodeData, RpcError,
@@ -471,7 +472,7 @@ fn handle_forum_sync(state: &SharedForumState, params: Value) -> Result<Value, R
         .get_forum(&forum_hash)
         .ok_or_else(|| RpcError::not_found("Forum not found"))?;
 
-    let mut missing = forum.compute_missing_nodes(&known_heads);
+    let mut missing = compute_missing(&forum.nodes, &known_heads);
 
     let client_max = params.max_results.unwrap_or(MAX_SYNC_MISSING_HASHES);
     let effective_max = client_max.min(MAX_SYNC_MISSING_HASHES);
@@ -691,7 +692,7 @@ fn handle_forum_export(state: &SharedForumState, params: Value) -> Result<Value,
 
     let skip = page.saturating_mul(page_size);
 
-    let all_nodes: Vec<&DagNode> = forum.nodes_in_order();
+    let all_nodes: Vec<&DagNode> = nodes_in_topological_order(&forum.nodes);
     let total_nodes = all_nodes.len();
 
     let mut nodes = Vec::new();

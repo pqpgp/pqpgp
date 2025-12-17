@@ -3,7 +3,7 @@
 //! This module manages the server-side state for forum DAG synchronization.
 //! The relay stores all forum nodes and tracks DAG heads for efficient sync.
 
-use pqpgp::forum::dag_ops::{compute_missing, nodes_in_topological_order};
+use pqpgp::forum::dag_ops::nodes_in_topological_order;
 use pqpgp::forum::{
     ContentHash, DagNode, ForumGenesis, ForumPermissions, NodeType, PermissionBuilder,
 };
@@ -84,23 +84,11 @@ impl ForumState {
         self.nodes.len()
     }
 
-    /// Computes which nodes a client is missing given their known heads.
-    ///
-    /// Returns hashes in topological order (parents before children).
-    pub fn compute_missing_nodes(&self, client_heads: &[ContentHash]) -> Vec<ContentHash> {
-        compute_missing(&self.nodes, client_heads)
-    }
-
-    /// Returns all nodes in topological order.
-    pub fn nodes_in_order(&self) -> Vec<&DagNode> {
-        nodes_in_topological_order(&self.nodes)
-    }
-
     /// Rebuilds permissions from scratch by replaying all nodes.
     pub fn rebuild_permissions(&mut self) {
         let mut builder = PermissionBuilder::new();
 
-        for node in self.nodes_in_order() {
+        for node in nodes_in_topological_order(&self.nodes) {
             let _ = builder.process_node(node);
         }
 
@@ -179,6 +167,7 @@ impl ForumRelayState {
 mod tests {
     use super::*;
     use pqpgp::crypto::KeyPair;
+    use pqpgp::forum::dag_ops::compute_missing;
     use pqpgp::forum::BoardGenesis;
 
     fn create_test_keypair() -> KeyPair {
@@ -261,16 +250,16 @@ mod tests {
         state.add_node(DagNode::from(board.clone()));
 
         // Client with empty heads should get everything
-        let missing = state.compute_missing_nodes(&[]);
+        let missing = compute_missing(&state.nodes, &[]);
         assert_eq!(missing.len(), 2);
 
         // Client with genesis should only need board
-        let missing = state.compute_missing_nodes(&[*genesis.hash()]);
+        let missing = compute_missing(&state.nodes, &[*genesis.hash()]);
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0], *board.hash());
 
         // Client with board should need nothing
-        let missing = state.compute_missing_nodes(&[*board.hash()]);
+        let missing = compute_missing(&state.nodes, &[*board.hash()]);
         assert!(missing.is_empty());
     }
 
