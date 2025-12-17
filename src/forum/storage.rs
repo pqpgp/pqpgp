@@ -1466,8 +1466,24 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let keypair = create_test_keypair();
 
-        let forum1 = create_test_forum(&keypair);
-        let forum2 = create_test_forum(&keypair);
+        // Create forums with different names to ensure unique hashes
+        let forum1 = ForumGenesis::create(
+            "Test Forum One".to_string(),
+            "First test forum".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+
+        let forum2 = ForumGenesis::create(
+            "Test Forum Two".to_string(),
+            "Second test forum".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
 
         // Store metadata for both forums
         for forum in [&forum1, &forum2] {

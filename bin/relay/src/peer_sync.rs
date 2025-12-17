@@ -3,6 +3,8 @@
 //! Enables relays to pull forum data from peer relays, supporting decentralization
 //! and redundancy. Relays can sync specific forums from configured upstream peers.
 //!
+//! Uses JSON-RPC 2.0 for communication with peer relays.
+//!
 //! ## Configuration
 //!
 //! - `--peers <url1,url2,...>` - Comma-separated list of peer relay URLs
@@ -19,9 +21,12 @@
 //!
 //! The relay doesn't trust peer data - it verifies everything.
 
-use crate::forum::SharedForumState;
-use pqpgp::forum::{ContentHash, DagNode, FetchNodesRequest, FetchNodesResponse, SyncRequest};
+use crate::rpc::SharedForumState;
+use base64::Engine;
+use pqpgp::forum::{ContentHash, DagNode};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -97,7 +102,106 @@ impl PeerSyncConfig {
     }
 }
 
-/// HTTP client for communicating with peer relays.
+// =============================================================================
+// JSON-RPC 2.0 Types
+// =============================================================================
+
+/// JSON-RPC 2.0 request.
+#[derive(Debug, Serialize)]
+struct RpcRequest {
+    jsonrpc: &'static str,
+    method: &'static str,
+    params: Value,
+    id: u64,
+}
+
+impl RpcRequest {
+    fn new(method: &'static str, params: impl Serialize) -> Self {
+        Self {
+            jsonrpc: "2.0",
+            method,
+            params: serde_json::to_value(params).unwrap_or(Value::Null),
+            id: 1,
+        }
+    }
+}
+
+/// JSON-RPC 2.0 response.
+#[derive(Debug, Deserialize)]
+struct RpcResponse {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    result: Option<Value>,
+    error: Option<RpcErrorResponse>,
+    #[allow(dead_code)]
+    id: Option<Value>,
+}
+
+/// JSON-RPC 2.0 error object.
+#[derive(Debug, Deserialize)]
+struct RpcErrorResponse {
+    #[allow(dead_code)]
+    code: i32,
+    message: String,
+    #[allow(dead_code)]
+    data: Option<Value>,
+}
+
+// =============================================================================
+// RPC Request/Response Types
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+struct SyncParams {
+    forum_hash: String,
+    known_heads: Vec<String>,
+    max_results: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct FetchParams {
+    hashes: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForumListResult {
+    hash: String,
+    #[allow(dead_code)]
+    name: String,
+    #[allow(dead_code)]
+    node_count: usize,
+    #[allow(dead_code)]
+    created_at: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SyncResult {
+    #[allow(dead_code)]
+    forum_hash: String,
+    missing_hashes: Vec<String>,
+    #[allow(dead_code)]
+    server_heads: Vec<String>,
+    #[allow(dead_code)]
+    has_more: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct FetchResult {
+    nodes: Vec<NodeData>,
+    not_found: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeData {
+    hash: String,
+    data: String, // Base64-encoded
+}
+
+// =============================================================================
+// Peer Sync Client
+// =============================================================================
+
+/// HTTP client for communicating with peer relays via JSON-RPC 2.0.
 pub struct PeerSyncClient {
     client: Client,
     config: PeerSyncConfig,
@@ -114,89 +218,81 @@ impl PeerSyncClient {
         Self { client, config }
     }
 
-    /// Fetches the list of forums from a peer relay.
-    async fn fetch_forum_list(&self, peer_url: &str) -> Result<Vec<ForumListItem>, String> {
-        let url = format!("{}/forums", peer_url.trim_end_matches('/'));
+    /// Sends an RPC request and extracts the result.
+    async fn rpc_call<T: for<'de> Deserialize<'de>>(
+        &self,
+        peer_url: &str,
+        method: &'static str,
+        params: impl Serialize,
+    ) -> Result<T, String> {
+        let url = format!("{}/rpc", peer_url.trim_end_matches('/'));
+        let request = RpcRequest::new(method, params);
 
         let response = self
             .client
-            .get(&url)
+            .post(&url)
+            .json(&request)
             .send()
             .await
-            .map_err(|e| format!("Failed to fetch forum list from {}: {}", peer_url, e))?;
+            .map_err(|e| format!("RPC call {} to {} failed: {}", method, peer_url, e))?;
 
         if !response.status().is_success() {
             return Err(format!(
-                "Peer {} returned status {}",
+                "Peer {} returned HTTP status {} for {}",
                 peer_url,
-                response.status()
+                response.status(),
+                method
             ));
         }
 
-        response
-            .json::<Vec<ForumListItem>>()
+        let rpc_resp: RpcResponse = response
+            .json()
             .await
-            .map_err(|e| format!("Failed to parse forum list from {}: {}", peer_url, e))
+            .map_err(|e| format!("Failed to parse RPC response from {}: {}", peer_url, e))?;
+
+        if let Some(err) = rpc_resp.error {
+            return Err(format!("RPC error from {}: {}", peer_url, err.message));
+        }
+
+        let result = rpc_resp
+            .result
+            .ok_or_else(|| format!("Empty RPC result from {} for {}", peer_url, method))?;
+
+        serde_json::from_value(result)
+            .map_err(|e| format!("Failed to parse {} result from {}: {}", method, peer_url, e))
+    }
+
+    /// Fetches the list of forums from a peer relay.
+    async fn fetch_forum_list(&self, peer_url: &str) -> Result<Vec<ForumListResult>, String> {
+        self.rpc_call(peer_url, "forum.list", serde_json::json!({}))
+            .await
     }
 
     /// Sends a sync request to a peer relay.
     async fn sync_request(
         &self,
         peer_url: &str,
-        request: &SyncRequest,
-    ) -> Result<SyncResponseCompat, String> {
-        let url = format!("{}/forums/sync", peer_url.trim_end_matches('/'));
-
-        let response = self
-            .client
-            .post(&url)
-            .json(request)
-            .send()
-            .await
-            .map_err(|e| format!("Sync request to {} failed: {}", peer_url, e))?;
-
-        if !response.status().is_success() {
-            return Err(format!(
-                "Peer {} returned status {} for sync",
-                peer_url,
-                response.status()
-            ));
-        }
-
-        response
-            .json::<SyncResponseCompat>()
-            .await
-            .map_err(|e| format!("Failed to parse sync response from {}: {}", peer_url, e))
+        forum_hash: ContentHash,
+        known_heads: Vec<ContentHash>,
+    ) -> Result<SyncResult, String> {
+        let params = SyncParams {
+            forum_hash: forum_hash.to_hex(),
+            known_heads: known_heads.iter().map(|h| h.to_hex()).collect(),
+            max_results: None,
+        };
+        self.rpc_call(peer_url, "forum.sync", params).await
     }
 
     /// Fetches nodes by hash from a peer relay.
     async fn fetch_nodes(
         &self,
         peer_url: &str,
-        request: &FetchNodesRequest,
-    ) -> Result<FetchNodesResponse, String> {
-        let url = format!("{}/forums/nodes/fetch", peer_url.trim_end_matches('/'));
-
-        let response = self
-            .client
-            .post(&url)
-            .json(request)
-            .send()
-            .await
-            .map_err(|e| format!("Fetch nodes request to {} failed: {}", peer_url, e))?;
-
-        if !response.status().is_success() {
-            return Err(format!(
-                "Peer {} returned status {} for fetch",
-                peer_url,
-                response.status()
-            ));
-        }
-
-        response
-            .json::<FetchNodesResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse fetch response from {}: {}", peer_url, e))
+        hashes: &[ContentHash],
+    ) -> Result<FetchResult, String> {
+        let params = FetchParams {
+            hashes: hashes.iter().map(|h| h.to_hex()).collect(),
+        };
+        self.rpc_call(peer_url, "forum.fetch", params).await
     }
 
     /// Syncs a single forum from a peer relay.
@@ -224,11 +320,8 @@ impl PeerSyncClient {
             known_heads.len()
         );
 
-        // Send sync request
-        let mut sync_req = SyncRequest::new(forum_hash);
-        sync_req.known_heads = known_heads;
-
-        let sync_resp = self.sync_request(peer_url, &sync_req).await?;
+        // Send sync request via RPC
+        let sync_resp = self.sync_request(peer_url, forum_hash, known_heads).await?;
 
         if sync_resp.missing_hashes.is_empty() {
             debug!(
@@ -239,27 +332,54 @@ impl PeerSyncClient {
             return Ok(stats);
         }
 
+        // Parse missing hashes
+        let missing_hashes: Vec<ContentHash> = sync_resp
+            .missing_hashes
+            .iter()
+            .filter_map(|h| ContentHash::from_hex(h).ok())
+            .collect();
+
         info!(
             "Forum {} has {} missing nodes from {}",
             forum_hash.short(),
-            sync_resp.missing_hashes.len(),
+            missing_hashes.len(),
             peer_url
         );
 
         // Fetch missing nodes in batches
-        for chunk in sync_resp.missing_hashes.chunks(self.config.batch_size) {
-            let fetch_req = FetchNodesRequest {
-                hashes: chunk.to_vec(),
-            };
-
-            let fetch_resp = self.fetch_nodes(peer_url, &fetch_req).await?;
+        for chunk in missing_hashes.chunks(self.config.batch_size) {
+            let fetch_resp = self.fetch_nodes(peer_url, chunk).await?;
 
             // Process fetched nodes
-            for serialized in &fetch_resp.nodes {
-                let hash = serialized.hash;
-                let data = &serialized.data;
+            for node_data in &fetch_resp.nodes {
+                let hash = match ContentHash::from_hex(&node_data.hash) {
+                    Ok(h) => h,
+                    Err(_) => {
+                        warn!(
+                            "Invalid hash in response from {}: {}",
+                            peer_url, node_data.hash
+                        );
+                        stats.rejected += 1;
+                        continue;
+                    }
+                };
 
-                match DagNode::from_bytes(data) {
+                // Decode base64 data
+                let data = match base64::engine::general_purpose::STANDARD.decode(&node_data.data) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        warn!(
+                            "Failed to decode base64 for node {} from {}: {}",
+                            hash.short(),
+                            peer_url,
+                            e
+                        );
+                        stats.rejected += 1;
+                        continue;
+                    }
+                };
+
+                match DagNode::from_bytes(&data) {
                     Ok(node) => {
                         // Verify the hash matches
                         if *node.hash() != hash {
@@ -315,7 +435,7 @@ impl PeerSyncClient {
 
             // Get forums to sync
             let forums_to_sync: Vec<ContentHash> = if self.config.forum_filter.is_empty() {
-                // Sync all forums from peer
+                // Sync all forums from peer via RPC
                 match self.fetch_forum_list(peer_url).await {
                     Ok(forums) => forums
                         .into_iter()
@@ -399,21 +519,21 @@ impl PeerSyncClient {
             peer_url
         );
 
-        // Fetch the genesis node
-        let fetch_req = FetchNodesRequest {
-            hashes: vec![forum_hash],
-        };
+        // Fetch the genesis node via RPC
+        let fetch_resp = self.fetch_nodes(peer_url, &[forum_hash]).await?;
 
-        let fetch_resp = self.fetch_nodes(peer_url, &fetch_req).await?;
-
-        let genesis_data = fetch_resp
+        let node_data = fetch_resp
             .nodes
             .iter()
-            .find(|n| n.hash == forum_hash)
-            .map(|n| &n.data)
+            .find(|n| ContentHash::from_hex(&n.hash).ok() == Some(forum_hash))
             .ok_or_else(|| format!("Forum genesis {} not found on peer", forum_hash.short()))?;
 
-        let node = DagNode::from_bytes(genesis_data)
+        // Decode base64 data
+        let genesis_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&node_data.data)
+            .map_err(|e| format!("Invalid base64 for genesis: {}", e))?;
+
+        let node = DagNode::from_bytes(&genesis_bytes)
             .map_err(|e| format!("Invalid genesis node: {}", e))?;
 
         let genesis = match node {
@@ -456,26 +576,6 @@ impl SyncStats {
         self.duplicates += other.duplicates;
         self.not_found += other.not_found;
     }
-}
-
-/// Forum list item from peer API.
-#[derive(serde::Deserialize)]
-struct ForumListItem {
-    hash: String,
-    #[allow(dead_code)]
-    name: String,
-}
-
-/// Sync response for compatibility (matches the API response format).
-#[derive(serde::Deserialize)]
-struct SyncResponseCompat {
-    #[allow(dead_code)]
-    forum_hash: ContentHash,
-    missing_hashes: Vec<ContentHash>,
-    #[allow(dead_code)]
-    has_more: bool,
-    #[allow(dead_code)]
-    server_heads: Vec<ContentHash>,
 }
 
 /// Spawns the background peer sync task.

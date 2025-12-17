@@ -533,16 +533,6 @@ impl PersistentForumState {
         self.state.get_forum(hash)
     }
 
-    /// Gets a mutable reference to a forum's state.
-    pub fn get_forum_mut(&mut self, hash: &ContentHash) -> Option<&mut ForumState> {
-        self.state.get_forum_mut(hash)
-    }
-
-    /// Returns all forum hashes.
-    pub fn list_forums(&self) -> Vec<ContentHash> {
-        self.state.list_forums()
-    }
-
     /// Returns the total number of nodes across all forums.
     pub fn total_nodes(&self) -> usize {
         self.state.total_nodes()
@@ -551,19 +541,6 @@ impl PersistentForumState {
     /// Provides access to the forums HashMap.
     pub fn forums(&self) -> &HashMap<ContentHash, ForumState> {
         &self.state.forums
-    }
-
-    /// Deletes a forum and all its nodes.
-    ///
-    /// Database is the source of truth - we delete from DB first, then update cache.
-    pub fn delete_forum(&mut self, forum_hash: &ContentHash) -> Result<(), String> {
-        // Delete from database first
-        self.persistence.delete_forum(forum_hash)?;
-
-        // Update cache on successful delete
-        self.state.forums.remove(forum_hash);
-
-        Ok(())
     }
 }
 

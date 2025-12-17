@@ -1,15 +1,55 @@
 //! Client for communicating with the PQPGP relay server.
 //!
 //! This module provides an async HTTP client for interacting with the
-//! dedicated relay server for message delivery and user discovery.
+//! dedicated relay server via JSON-RPC 2.0.
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{error, info, instrument};
 
 /// Default relay server URL
 pub const DEFAULT_RELAY_URL: &str = "http://127.0.0.1:3001";
+
+// =============================================================================
+// JSON-RPC 2.0 Types
+// =============================================================================
+
+/// JSON-RPC 2.0 request.
+#[derive(Debug, Serialize)]
+struct RpcRequest {
+    jsonrpc: &'static str,
+    method: String,
+    params: Value,
+    id: u64,
+}
+
+/// JSON-RPC 2.0 response.
+#[derive(Debug, Deserialize)]
+struct RpcResponse {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    result: Option<Value>,
+    error: Option<RpcError>,
+    #[allow(dead_code)]
+    id: Option<Value>,
+}
+
+/// JSON-RPC 2.0 error.
+#[derive(Debug, Deserialize)]
+struct RpcError {
+    #[allow(dead_code)]
+    code: i32,
+    message: String,
+    #[allow(dead_code)]
+    data: Option<Value>,
+}
+
+// =============================================================================
+// Domain Types
+// =============================================================================
 
 /// A registered user on the relay
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,35 +79,9 @@ pub struct RelayedMessage {
     pub message_id: String,
 }
 
-/// Request to register a user
-#[derive(Debug, Serialize)]
-struct RegisterRequest {
-    name: String,
-    fingerprint: String,
-    prekey_bundle: String,
-}
-
-/// Request to send a message
-#[derive(Debug, Serialize)]
-struct SendMessageRequest {
-    sender_fingerprint: String,
-    encrypted_data: String,
-}
-
-/// Response from fetching messages
-#[derive(Debug, Deserialize)]
-struct FetchMessagesResponse {
-    messages: Vec<RelayedMessage>,
-}
-
-/// Generic API response
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct ApiResponse {
-    success: bool,
-    message: Option<String>,
-    error: Option<String>,
-}
+// =============================================================================
+// Error Type
+// =============================================================================
 
 /// Error type for relay client operations
 #[derive(Debug, thiserror::Error)]
@@ -78,17 +92,23 @@ pub enum RelayClientError {
     #[error("Relay returned error: {0}")]
     RelayError(String),
 
-    #[error("Invalid response from relay")]
-    InvalidResponse,
+    #[error("Invalid response from relay: {0}")]
+    InvalidResponse(String),
 }
 
-/// Client for communicating with the relay server
-#[derive(Clone)]
+// =============================================================================
+// Relay Client
+// =============================================================================
+
+/// Client for communicating with the relay server via JSON-RPC 2.0.
+#[derive(Debug)]
 pub struct RelayClient {
     /// HTTP client
     client: Client,
     /// Base URL of the relay server
     base_url: String,
+    /// Request ID counter
+    request_id: AtomicU64,
 }
 
 impl RelayClient {
@@ -102,7 +122,53 @@ impl RelayClient {
         Self {
             client: Client::new(),
             base_url: url.into().trim_end_matches('/').to_string(),
+            request_id: AtomicU64::new(1),
         }
+    }
+
+    /// Returns the RPC endpoint URL.
+    fn rpc_url(&self) -> String {
+        format!("{}/rpc", self.base_url)
+    }
+
+    /// Generates the next request ID.
+    fn next_id(&self) -> u64 {
+        self.request_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Sends an RPC request and returns the result.
+    async fn call<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<T, RelayClientError> {
+        let request = RpcRequest {
+            jsonrpc: "2.0",
+            method: method.to_string(),
+            params,
+            id: self.next_id(),
+        };
+
+        let response = self
+            .client
+            .post(self.rpc_url())
+            .json(&request)
+            .send()
+            .await?;
+
+        let rpc_response: RpcResponse = response.json().await?;
+
+        if let Some(error) = rpc_response.error {
+            return Err(RelayClientError::RelayError(error.message));
+        }
+
+        let result = rpc_response
+            .result
+            .ok_or_else(|| RelayClientError::InvalidResponse("Missing result".to_string()))?;
+
+        serde_json::from_value(result).map_err(|e| {
+            RelayClientError::InvalidResponse(format!("Failed to parse result: {}", e))
+        })
     }
 
     /// Registers a user with the relay server
@@ -113,71 +179,45 @@ impl RelayClient {
         fingerprint: String,
         prekey_bundle: String,
     ) -> Result<(), RelayClientError> {
-        let url = format!("{}/register", self.base_url);
+        let params = serde_json::json!({
+            "name": name,
+            "fingerprint": fingerprint,
+            "prekey_bundle": prekey_bundle,
+        });
 
-        let request = RegisterRequest {
-            name: name.clone(),
-            fingerprint: fingerprint.clone(),
-            prekey_bundle,
-        };
+        let _: Value = self.call("user.register", params).await?;
 
-        let response = self.client.post(&url).json(&request).send().await?;
-
-        if response.status().is_success() {
-            info!(
-                "Registered user on relay: {} ({})",
-                name,
-                &fingerprint[..16.min(fingerprint.len())]
-            );
-            Ok(())
-        } else {
-            let api_response: ApiResponse = response.json().await?;
-            Err(RelayClientError::RelayError(
-                api_response
-                    .error
-                    .unwrap_or_else(|| "Unknown error".to_string()),
-            ))
-        }
+        info!(
+            "Registered user on relay: {} ({})",
+            name,
+            &fingerprint[..16.min(fingerprint.len())]
+        );
+        Ok(())
     }
 
     /// Unregisters a user from the relay
     #[allow(dead_code)]
     #[instrument(skip(self))]
     pub async fn unregister_user(&self, fingerprint: &str) -> Result<(), RelayClientError> {
-        let url = format!("{}/register/{}", self.base_url, fingerprint);
+        let params = serde_json::json!({
+            "fingerprint": fingerprint,
+        });
 
-        let response = self.client.delete(&url).send().await?;
+        let _: Value = self.call("user.unregister", params).await?;
 
-        if response.status().is_success() {
-            info!(
-                "Unregistered user from relay: {}",
-                &fingerprint[..16.min(fingerprint.len())]
-            );
-            Ok(())
-        } else {
-            let api_response: ApiResponse = response.json().await?;
-            Err(RelayClientError::RelayError(
-                api_response
-                    .error
-                    .unwrap_or_else(|| "Unknown error".to_string()),
-            ))
-        }
+        info!(
+            "Unregistered user from relay: {}",
+            &fingerprint[..16.min(fingerprint.len())]
+        );
+        Ok(())
     }
 
     /// Lists all registered users on the relay
     #[instrument(skip(self))]
     pub async fn list_users(&self) -> Result<Vec<RegisteredUser>, RelayClientError> {
-        let url = format!("{}/users", self.base_url);
-
-        let response = self.client.get(&url).send().await?;
-
-        if response.status().is_success() {
-            let users: Vec<RegisteredUser> = response.json().await?;
-            info!("Fetched {} users from relay", users.len());
-            Ok(users)
-        } else {
-            Err(RelayClientError::InvalidResponse)
-        }
+        let users: Vec<RegisteredUser> = self.call("user.list", serde_json::json!({})).await?;
+        info!("Fetched {} users from relay", users.len());
+        Ok(users)
     }
 
     /// Gets a specific user's information
@@ -187,17 +227,19 @@ impl RelayClient {
         &self,
         fingerprint: &str,
     ) -> Result<Option<RegisteredUser>, RelayClientError> {
-        let url = format!("{}/users/{}", self.base_url, fingerprint);
+        let params = serde_json::json!({
+            "fingerprint": fingerprint,
+        });
 
-        let response = self.client.get(&url).send().await?;
+        // user.get returns null if not found, or the user object
+        let result: Value = self.call("user.get", params).await?;
 
-        if response.status().is_success() {
-            let user: Option<RegisteredUser> = response.json().await?;
-            Ok(user)
-        } else if response.status() == reqwest::StatusCode::NOT_FOUND {
+        if result.is_null() {
             Ok(None)
         } else {
-            Err(RelayClientError::InvalidResponse)
+            let user: RegisteredUser = serde_json::from_value(result)
+                .map_err(|e| RelayClientError::InvalidResponse(e.to_string()))?;
+            Ok(Some(user))
         }
     }
 
@@ -209,30 +251,20 @@ impl RelayClient {
         recipient_fingerprint: String,
         encrypted_data: String,
     ) -> Result<(), RelayClientError> {
-        let url = format!("{}/messages/{}", self.base_url, recipient_fingerprint);
+        let params = serde_json::json!({
+            "recipient_fingerprint": recipient_fingerprint,
+            "sender_fingerprint": sender_fingerprint,
+            "encrypted_data": encrypted_data,
+        });
 
-        let request = SendMessageRequest {
-            sender_fingerprint: sender_fingerprint.clone(),
-            encrypted_data,
-        };
+        let _: Value = self.call("message.send", params).await?;
 
-        let response = self.client.post(&url).json(&request).send().await?;
-
-        if response.status().is_success() {
-            info!(
-                "Sent message via relay: {} -> {}",
-                &sender_fingerprint[..16.min(sender_fingerprint.len())],
-                &recipient_fingerprint[..16.min(recipient_fingerprint.len())]
-            );
-            Ok(())
-        } else {
-            let api_response: ApiResponse = response.json().await?;
-            Err(RelayClientError::RelayError(
-                api_response
-                    .error
-                    .unwrap_or_else(|| "Unknown error".to_string()),
-            ))
-        }
+        info!(
+            "Sent message via relay: {} -> {}",
+            &sender_fingerprint[..16.min(sender_fingerprint.len())],
+            &recipient_fingerprint[..16.min(recipient_fingerprint.len())]
+        );
+        Ok(())
     }
 
     /// Fetches all pending messages for a recipient
@@ -241,54 +273,59 @@ impl RelayClient {
         &self,
         fingerprint: &str,
     ) -> Result<Vec<RelayedMessage>, RelayClientError> {
-        let url = format!("{}/messages/{}", self.base_url, fingerprint);
+        let params = serde_json::json!({
+            "fingerprint": fingerprint,
+        });
 
-        let response = self.client.get(&url).send().await?;
-
-        if response.status().is_success() {
-            let fetch_response: FetchMessagesResponse = response.json().await?;
-            let count = fetch_response.messages.len();
-            if count > 0 {
-                info!(
-                    "Fetched {} messages for {}",
-                    count,
-                    &fingerprint[..16.min(fingerprint.len())]
-                );
-            }
-            Ok(fetch_response.messages)
-        } else {
-            Err(RelayClientError::InvalidResponse)
+        #[derive(Deserialize)]
+        struct FetchResponse {
+            messages: Vec<RelayedMessage>,
         }
+
+        let response: FetchResponse = self.call("message.fetch", params).await?;
+        let count = response.messages.len();
+
+        if count > 0 {
+            info!(
+                "Fetched {} messages for {}",
+                count,
+                &fingerprint[..16.min(fingerprint.len())]
+            );
+        }
+        Ok(response.messages)
     }
 
     /// Checks how many messages are pending without fetching them
     #[allow(dead_code)]
     #[instrument(skip(self))]
     pub async fn check_message_count(&self, fingerprint: &str) -> Result<usize, RelayClientError> {
-        let url = format!("{}/messages/{}/check", self.base_url, fingerprint);
+        let params = serde_json::json!({
+            "fingerprint": fingerprint,
+        });
 
-        let response = self.client.get(&url).send().await?;
-
-        if response.status().is_success() {
-            #[derive(Deserialize)]
-            struct CountResponse {
-                pending_count: usize,
-            }
-            let count_response: CountResponse = response.json().await?;
-            Ok(count_response.pending_count)
-        } else {
-            Err(RelayClientError::InvalidResponse)
+        #[derive(Deserialize)]
+        struct CheckResponse {
+            pending_count: usize,
         }
+
+        let response: CheckResponse = self.call("message.check", params).await?;
+        Ok(response.pending_count)
     }
 
     /// Checks if the relay server is healthy
     #[allow(dead_code)]
     #[instrument(skip(self))]
     pub async fn health_check(&self) -> Result<bool, RelayClientError> {
-        let url = format!("{}/health", self.base_url);
+        #[derive(Deserialize)]
+        struct HealthResponse {
+            status: String,
+        }
 
-        match self.client.get(&url).send().await {
-            Ok(response) => Ok(response.status().is_success()),
+        match self
+            .call::<HealthResponse>("relay.health", serde_json::json!({}))
+            .await
+        {
+            Ok(response) => Ok(response.status == "ok"),
             Err(e) => {
                 error!("Relay health check failed: {:?}", e);
                 Ok(false)
@@ -300,6 +337,16 @@ impl RelayClient {
 impl Default for RelayClient {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Clone for RelayClient {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            base_url: self.base_url.clone(),
+            request_id: AtomicU64::new(self.request_id.load(Ordering::Relaxed)),
+        }
     }
 }
 

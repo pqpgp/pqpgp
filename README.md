@@ -273,21 +273,25 @@ The sync protocol uses **heads** (nodes with no children) to efficiently determi
 
 This approach minimizes bandwidth by only transferring nodes the client doesn't have. Concurrent posts from different users create valid DAG branches that merge on sync.
 
-**Forum API Endpoints:**
+**Relay JSON-RPC 2.0 API:**
+
+All relay operations use a single `/rpc` endpoint with JSON-RPC 2.0:
 
 ```
-GET    /forums                    - List all forums
-POST   /forums                    - Create a new forum
-GET    /forums/:hash              - Get forum details
-GET    /forums/:hash/boards       - List boards in forum
-GET    /forums/:hash/moderators   - List forum moderators
-GET    /forums/:fh/boards/:bh/moderators - List board moderators
-GET    /forums/:fh/boards/:bh/threads    - List threads in board
-GET    /forums/:fh/threads/:th/posts     - List posts in thread
-POST   /forums/sync               - Sync request (get missing hashes)
-POST   /forums/nodes/fetch        - Fetch nodes by hash
-POST   /forums/nodes/submit       - Submit a new node
-GET    /forums/:hash/export       - Export entire forum DAG
+POST /rpc - JSON-RPC 2.0 endpoint
+
+Methods:
+  user.register    - Register user with prekey bundle
+  user.list        - List all registered users
+  message.send     - Send message to recipient
+  message.fetch    - Fetch messages for recipient
+  forum.list       - List all forums
+  forum.sync       - Get missing node hashes for sync
+  forum.fetch      - Fetch nodes by hash
+  forum.submit     - Submit a new node
+  forum.export     - Export entire forum DAG (paginated)
+  relay.health     - Health check
+  relay.stats      - Server statistics
 ```
 
 ## 🔑 Password Protection
@@ -546,32 +550,17 @@ Invalid nodes are rejected and not stored, protecting against malicious relays.
 bin/relay/
 ├── Cargo.toml           # Relay server dependencies (axum, rocksdb, reqwest)
 └── src/
-    ├── main.rs          # Message relay server + router setup
+    ├── main.rs          # Server entry point, routing
+    ├── rpc.rs           # Unified JSON-RPC 2.0 handler
     ├── forum/           # Forum module
     │   ├── mod.rs       # Module exports
-    │   ├── handlers.rs  # Forum API handlers with validation
     │   ├── state.rs     # Forum DAG state management
     │   └── persistence.rs # RocksDB-backed persistence
-    ├── peer_sync.rs     # Relay-to-relay synchronization
+    ├── peer_sync.rs     # Relay-to-relay synchronization (uses RPC)
     └── rate_limit.rs    # IP-based rate limiting middleware
 
-# Messaging Endpoints:
-# POST   /register         - Register user with prekey bundle
-# DELETE /register/:fp     - Unregister user
-# GET    /users            - List registered users
-# GET    /users/:fp        - Get user's prekey bundle
-# POST   /messages/:fp     - Send message to recipient
-# GET    /messages/:fp     - Fetch pending messages
-# GET    /health           - Health check
-# GET    /stats            - Server statistics
-#
-# Forum Endpoints:
-# GET/POST /forums         - List/Create forums
-# GET    /forums/:hash     - Get forum details
-# GET    /forums/:hash/boards - List boards
-# GET    /forums/:hash/moderators - List moderators
-# POST   /forums/sync      - Sync protocol
-# POST   /forums/nodes/*   - Node operations
+# Single JSON-RPC 2.0 endpoint:
+# POST /rpc - All operations (user, message, forum, system)
 ```
 
 **Forum Storage Layout (RocksDB):**

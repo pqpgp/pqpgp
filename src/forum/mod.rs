@@ -41,6 +41,7 @@ pub mod permissions;
 mod pm_scanner;
 mod pm_sealed;
 mod post;
+pub mod rpc_client;
 mod sealed_message;
 pub mod storage;
 pub mod sync;
@@ -73,6 +74,7 @@ pub use pm_sealed::{
     SealedMessageResult, UnsealedMessageResult,
 };
 pub use post::{Post, PostContent};
+pub use rpc_client::{RpcClient, RpcError, RpcRequest, RpcResponse};
 pub use sealed_message::{
     compute_recipient_hint, derive_hint_key, InnerMessage, RatchetHeader, SealedEnvelope,
     SealedPrivateMessage, SealedPrivateMessageContent, X3DHData,

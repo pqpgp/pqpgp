@@ -3,7 +3,7 @@
 //! This module manages the server-side state for forum DAG synchronization.
 //! The relay stores all forum nodes and tracks DAG heads for efficient sync.
 
-use pqpgp::forum::dag_ops::{compute_missing, compute_reachable, nodes_in_topological_order};
+use pqpgp::forum::dag_ops::{compute_missing, nodes_in_topological_order};
 use pqpgp::forum::{
     ContentHash, DagNode, ForumGenesis, ForumPermissions, NodeType, PermissionBuilder,
 };
@@ -18,9 +18,11 @@ pub struct ForumState {
     pub heads: HashSet<ContentHash>,
     /// Cached permission state for this forum.
     pub permissions: Option<ForumPermissions>,
-    /// Forum metadata (extracted from genesis).
+    /// Forum name (extracted from genesis).
     pub name: String,
+    /// Forum description (extracted from genesis).
     pub description: String,
+    /// Creation timestamp.
     pub created_at: u64,
 }
 
@@ -87,11 +89,6 @@ impl ForumState {
     /// Returns hashes in topological order (parents before children).
     pub fn compute_missing_nodes(&self, client_heads: &[ContentHash]) -> Vec<ContentHash> {
         compute_missing(&self.nodes, client_heads)
-    }
-
-    /// Computes all nodes reachable by walking backwards from heads.
-    pub fn compute_reachable_nodes(&self, heads: &[ContentHash]) -> HashSet<ContentHash> {
-        compute_reachable(&self.nodes, heads)
     }
 
     /// Returns all nodes in topological order.
@@ -170,16 +167,6 @@ impl ForumRelayState {
     /// Gets a reference to a forum's state.
     pub fn get_forum(&self, hash: &ContentHash) -> Option<&ForumState> {
         self.forums.get(hash)
-    }
-
-    /// Gets a mutable reference to a forum's state.
-    pub fn get_forum_mut(&mut self, hash: &ContentHash) -> Option<&mut ForumState> {
-        self.forums.get_mut(hash)
-    }
-
-    /// Returns all forum hashes.
-    pub fn list_forums(&self) -> Vec<ContentHash> {
-        self.forums.keys().copied().collect()
     }
 
     /// Returns the total number of nodes across all forums.
@@ -306,7 +293,7 @@ mod tests {
 
         // Should be able to get forum
         assert!(relay.get_forum(&hash).is_some());
-        assert_eq!(relay.list_forums().len(), 1);
+        assert_eq!(relay.forums.len(), 1);
     }
 
     #[test]

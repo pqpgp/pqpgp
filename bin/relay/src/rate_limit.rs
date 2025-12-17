@@ -172,16 +172,6 @@ impl RateLimitLayer {
             cleanup_interval: Duration::from_secs(300),
         })
     }
-
-    /// Creates a rate limit layer optimized for read operations (more permissive).
-    pub fn for_reads() -> Self {
-        Self::with_config(RateLimitConfig {
-            // 200 reads per 10 seconds (20 read/sec average)
-            requests_per_window: 200,
-            window_duration: Duration::from_secs(10),
-            cleanup_interval: Duration::from_secs(300),
-        })
-    }
 }
 
 impl Default for RateLimitLayer {

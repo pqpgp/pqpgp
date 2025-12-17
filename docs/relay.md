@@ -1,6 +1,6 @@
 # Relay Server
 
-The PQPGP relay server is a content-addressed DAG storage node that provides message routing and forum data synchronization.
+The PQPGP relay server is a content-addressed DAG storage node that provides message routing and forum data synchronization via a unified JSON-RPC 2.0 API.
 
 ## Design Philosophy
 
@@ -73,59 +73,337 @@ pqpgp-relay --peers http://relay1.example.com --sync-interval 120
 - **Tamper-Proof**: Invalid or modified nodes are rejected
 - **Censorship-Resistant**: Multiple relays provide redundancy
 
-## API Endpoints
+## JSON-RPC 2.0 API
 
-### Messaging
+All operations use a single JSON-RPC 2.0 endpoint:
 
-| Endpoint                       | Method | Description                      |
-| ------------------------------ | ------ | -------------------------------- |
-| `/register`                    | POST   | Register user with prekey bundle |
-| `/register/:fingerprint`       | DELETE | Unregister user                  |
-| `/users`                       | GET    | List all registered users        |
-| `/users/:fingerprint`          | GET    | Get user's prekey bundle         |
-| `/messages/:fingerprint`       | POST   | Send message to recipient        |
-| `/messages/:fingerprint`       | GET    | Fetch messages for recipient     |
-| `/messages/:fingerprint/check` | GET    | Check pending message count      |
-| `/health`                      | GET    | Health check                     |
-| `/stats`                       | GET    | Server statistics                |
+| Endpoint | Method | Description           |
+| -------- | ------ | --------------------- |
+| `/rpc`   | POST   | JSON-RPC 2.0 endpoint |
 
-### Forum DAG Sync
+### Available Methods
 
-The relay provides only core DAG synchronization - no application-level views:
+#### User Methods
 
-| Endpoint               | Method | Description                                |
-| ---------------------- | ------ | ------------------------------------------ |
-| `/forums`              | GET    | List all forums (minimal info)             |
-| `/forums/stats`        | GET    | Relay statistics                           |
-| `/forums/sync`         | POST   | Sync request (get missing hashes)          |
-| `/forums/nodes/fetch`  | POST   | Fetch nodes by hash                        |
-| `/forums/nodes/submit` | POST   | Submit a new node (including ForumGenesis) |
-| `/forums/:hash/export` | GET    | Export entire forum DAG (paginated)        |
+| Method            | Description                    |
+| ----------------- | ------------------------------ |
+| `user.register`   | Register user with prekey bundle |
+| `user.unregister` | Unregister a user              |
+| `user.get`        | Get user's prekey bundle       |
+| `user.list`       | List all registered users      |
 
-Clients sync the raw DAG and build their own local views of boards, threads, and posts.
+#### Message Methods
 
-## Sync Protocol
+| Method          | Description                 |
+| --------------- | --------------------------- |
+| `message.send`  | Send message to recipient   |
+| `message.fetch` | Fetch messages for recipient |
+| `message.check` | Check pending message count |
 
-```
-1. Client → Relay:  SyncRequest { forum_hash, known_heads: [...] }
-2. Relay → Client:  SyncResponse { missing_hashes: [...], server_heads: [...] }
-3. Client → Relay:  FetchNodesRequest { hashes: [...] }
-4. Relay → Client:  FetchNodesResponse { nodes: [...] }
-```
+#### Forum Methods
 
-### Creating a Forum
+| Method         | Description                                |
+| -------------- | ------------------------------------------ |
+| `forum.list`   | List all forums (minimal info)             |
+| `forum.sync`   | Get missing node hashes for sync           |
+| `forum.fetch`  | Fetch nodes by hash                        |
+| `forum.submit` | Submit a new node (including ForumGenesis) |
+| `forum.export` | Export entire forum DAG (paginated)        |
 
-To create a forum, submit a `ForumGenesis` node via `/forums/nodes/submit`:
+#### System Methods
 
-```
-POST /forums/nodes/submit
+| Method         | Description       |
+| -------------- | ----------------- |
+| `relay.health` | Health check      |
+| `relay.stats`  | Server statistics |
+
+## JSON-RPC 2.0 Protocol
+
+All requests use JSON-RPC 2.0 format:
+
+```json
 {
-    "forum_hash": "<genesis-hash>",
-    "node_data": <serialized ForumGenesis>
+  "jsonrpc": "2.0",
+  "method": "method.name",
+  "params": {},
+  "id": 1
 }
 ```
 
-The relay validates the genesis and creates the forum automatically.
+### Method Examples
+
+#### Register User
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "user.register",
+  "params": {
+    "name": "Alice",
+    "fingerprint": "abc123...",
+    "prekey_bundle": "<base64-encoded-bundle>"
+  },
+  "id": 1
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {"success": true},
+  "id": 1
+}
+```
+
+#### List Users
+
+```json
+// Request
+{"jsonrpc": "2.0", "method": "user.list", "params": {}, "id": 1}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "name": "Alice",
+      "fingerprint": "abc123...",
+      "prekey_bundle": "<base64>",
+      "registered_at": 1700000000000,
+      "last_seen": 1700000000000
+    }
+  ],
+  "id": 1
+}
+```
+
+#### Send Message
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "message.send",
+  "params": {
+    "recipient_fingerprint": "def456...",
+    "sender_fingerprint": "abc123...",
+    "encrypted_data": "<base64-encoded-message>"
+  },
+  "id": 1
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {"success": true},
+  "id": 1
+}
+```
+
+#### Fetch Messages
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "message.fetch",
+  "params": {"fingerprint": "abc123..."},
+  "id": 1
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "messages": [
+      {
+        "sender_fingerprint": "def456...",
+        "encrypted_data": "<base64>",
+        "timestamp": 1700000000000,
+        "message_id": "msg123..."
+      }
+    ]
+  },
+  "id": 1
+}
+```
+
+#### List Forums
+
+```json
+// Request
+{"jsonrpc": "2.0", "method": "forum.list", "params": {}, "id": 1}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "hash": "abc123...",
+      "name": "My Forum",
+      "description": "A test forum",
+      "node_count": 42,
+      "created_at": 1700000000000
+    }
+  ],
+  "id": 1
+}
+```
+
+#### Sync Forum
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "forum.sync",
+  "params": {
+    "forum_hash": "abc123...",
+    "known_heads": ["def456...", "ghi789..."],
+    "max_results": 1000
+  },
+  "id": 2
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "forum_hash": "abc123...",
+    "missing_hashes": ["jkl012...", "mno345..."],
+    "server_heads": ["pqr678..."],
+    "has_more": false
+  },
+  "id": 2
+}
+```
+
+#### Fetch Nodes
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "forum.fetch",
+  "params": {
+    "hashes": ["jkl012...", "mno345..."]
+  },
+  "id": 3
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "nodes": [
+      {"hash": "jkl012...", "data": "<base64-encoded-node>"},
+      {"hash": "mno345...", "data": "<base64-encoded-node>"}
+    ],
+    "not_found": []
+  },
+  "id": 3
+}
+```
+
+#### Submit Node
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "forum.submit",
+  "params": {
+    "forum_hash": "abc123...",
+    "node_data": "<base64-encoded-node>"
+  },
+  "id": 4
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "accepted": true,
+    "hash": "stu901..."
+  },
+  "id": 4
+}
+```
+
+#### Export Forum
+
+```json
+// Request
+{
+  "jsonrpc": "2.0",
+  "method": "forum.export",
+  "params": {
+    "forum_hash": "abc123...",
+    "page": 0,
+    "page_size": 100
+  },
+  "id": 5
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "forum_hash": "abc123...",
+    "nodes": [{"hash": "...", "data": "..."}],
+    "total_nodes": 150,
+    "has_more": true
+  },
+  "id": 5
+}
+```
+
+#### Health Check
+
+```json
+// Request
+{"jsonrpc": "2.0", "method": "relay.health", "params": {}, "id": 1}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {"status": "ok"},
+  "id": 1
+}
+```
+
+#### Server Stats
+
+```json
+// Request
+{"jsonrpc": "2.0", "method": "relay.stats", "params": {}, "id": 1}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "registered_users": 10,
+    "pending_messages": 5,
+    "total_forums": 3,
+    "total_nodes": 150
+  },
+  "id": 1
+}
+```
+
+### Error Codes
+
+| Code   | Meaning            |
+| ------ | ------------------ |
+| -32700 | Parse error        |
+| -32600 | Invalid request    |
+| -32601 | Method not found   |
+| -32602 | Invalid params     |
+| -32603 | Internal error     |
+| -32001 | Not found          |
+| -32002 | Validation failed  |
+| -32003 | Rate limited       |
+| -32004 | Resource exhausted |
 
 ### Batching
 
@@ -158,10 +436,9 @@ pqpgp_relay_data/
 
 The relay implements token bucket rate limiting:
 
-| Operation Type   | Limit               |
-| ---------------- | ------------------- |
-| Read operations  | 100 requests/second |
-| Write operations | 20 requests/second  |
+| Operation Type | Limit               |
+| -------------- | ------------------- |
+| All operations | 20 requests/second  |
 
 Rate limits are per-IP address.
 
@@ -202,11 +479,11 @@ pqpgp-relay --bind 0.0.0.0:3002 \
 ```
 bin/relay/src/
 ├── main.rs          # Server entry point, routing
+├── rpc.rs           # Unified JSON-RPC 2.0 handler
 ├── forum/           # Forum DAG storage module
 │   ├── mod.rs       # Module exports
-│   ├── handlers.rs  # DAG sync API handlers
 │   ├── state.rs     # In-memory forum state
 │   └── persistence.rs # RocksDB storage layer
-├── peer_sync.rs     # Relay-to-relay synchronization
+├── peer_sync.rs     # Relay-to-relay synchronization (uses RPC)
 └── rate_limit.rs    # Token bucket rate limiting
 ```
