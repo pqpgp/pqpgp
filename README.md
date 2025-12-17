@@ -208,6 +208,40 @@ PQPGP includes a cryptographically-secured forum system built on a Directed Acyc
 - `HideBoard` / `UnhideBoard` - Hide or restore entire boards
 - `MoveThread` - Move a thread to a different board within the same forum
 
+### Private Messaging (Sealed Sender Protocol)
+
+Forums support end-to-end encrypted private messages using a Signal-inspired sealed sender protocol:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Sealed Sender Protocol                     │
+├──────────────────────────────────────────────────────────────────┤
+│  1. EncryptionIdentity: Users publish X3DH prekey bundles        │
+│     • ML-KEM-1024 identity key + signed prekey + one-time keys   │
+│     • Bound to forum identity via ML-DSA-87 signature            │
+│                                                                  │
+│  2. Sealed Messages: Doubly-encrypted for maximum privacy        │
+│     • Outer layer: Encrypted to recipient's prekey               │
+│     • Inner layer: Double Ratchet encrypted content              │
+│     • Recipient hint: HMAC-based filtering (no metadata leak)    │
+│                                                                  │
+│  3. Trial Decryption: Only recipient can identify their messages │
+│     • Server sees: opaque blobs with random-looking hints        │
+│     • Server cannot: link sender, recipient, or content          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Privacy Properties:**
+
+| Property | How Achieved |
+|----------|--------------|
+| Content hidden | AES-256-GCM encryption |
+| Sender hidden | Sealed sender - only recipient knows |
+| Recipient hidden | Trial decryption - server can't tell who can decrypt |
+| Forward secrecy | X3DH + Double Ratchet |
+| Post-compromise security | Double Ratchet key rotation |
+| Deniability | No signatures on message content |
+
 **DAG Sync Protocol:**
 
 The sync protocol uses **heads** (nodes with no children) to efficiently determine what data needs to be transferred:
@@ -378,7 +412,7 @@ let ciphertext = aes_gcm.encrypt(nonce, Payload { msg, aad })?;
 
 ## 🛡️ Security Testing
 
-PQPGP includes a comprehensive security testing framework with **330+ tests** covering:
+PQPGP includes a comprehensive security testing framework with **430+ tests** covering:
 
 - **Input Validation**: Buffer overflow protection, bounds checking
 - **Attack Resistance**: Timing attacks, padding oracles, injection attacks
@@ -427,7 +461,12 @@ src/
 │   ├── sync.rs       # Sync protocol types (SyncRequest, FetchNodes, etc.)
 │   ├── storage.rs    # Client-side file-based DAG storage
 │   ├── client.rs     # ForumClient with sync orchestration
-│   └── validation.rs # Node validation rules
+│   ├── validation.rs # Node validation rules
+│   ├── encryption_identity.rs  # X3DH prekey bundles for PM
+│   ├── sealed_message.rs       # SealedPrivateMessage node type
+│   ├── pm_sealed.rs            # Sealed sender encrypt/decrypt
+│   ├── pm_scanner.rs           # Efficient message scanning with hints
+│   └── conversation.rs         # Double Ratchet session management
 └── cli/              # Command-line interface
 ```
 
@@ -535,13 +574,14 @@ pqpgp_relay_data/
 ```
 examples/             # Usage examples and demonstrations
 tests/                # Comprehensive test suite
-├── security_tests.rs      # Security validation tests
-├── adversarial_tests.rs   # Attack simulation tests
-├── fuzz_tests.rs          # Fuzzing and property-based tests
-├── property_tests.rs      # Mathematical property verification
-├── integration_tests.rs   # End-to-end workflow tests
-├── timing_analysis_tests.rs      # Timing side-channel analysis
-└── timing_safe_crypto_tests.rs   # Constant-time operation verification
+├── security_tests.rs           # Security validation tests
+├── adversarial_tests.rs        # Attack simulation tests
+├── fuzz_tests.rs               # Fuzzing and property-based tests
+├── property_tests.rs           # Mathematical property verification
+├── integration_tests.rs        # End-to-end workflow tests
+├── forum_e2e_tests.rs          # Forum and PM end-to-end tests
+├── timing_analysis_tests.rs    # Timing side-channel analysis
+└── timing_safe_crypto_tests.rs # Constant-time operation verification
 ```
 
 ## 🔧 Development
