@@ -18,11 +18,21 @@
 //!
 //! # Enable debug logging
 //! RUST_LOG=debug pqpgp-relay
+//!
+//! # Sync from peer relays
+//! pqpgp-relay --peers http://relay1.example.com,http://relay2.example.com
+//!
+//! # Sync only specific forums
+//! pqpgp-relay --peers http://relay1.example.com --sync-forums <hash1>,<hash2>
+//!
+//! # Set sync interval (default: 60 seconds)
+//! pqpgp-relay --peers http://relay1.example.com --sync-interval 120
 //! ```
 
 mod forum_handlers;
 mod forum_persistence;
 mod forum_state;
+mod peer_sync;
 mod rate_limit;
 
 use axum::{
@@ -531,7 +541,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/:forum_hash/threads/:thread_hash/posts",
             get(forum_handlers::list_posts),
         )
-        .with_state(forum_state)
+        .with_state(forum_state.clone())
         .layer(read_rate_limit);
 
     let forum_router = Router::new()
@@ -542,6 +552,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .merge(messaging_router)
         .nest("/forums", forum_router);
+
+    // Start peer sync if configured
+    let peer_sync_config = peer_sync::PeerSyncConfig::from_args();
+    peer_sync::spawn_peer_sync_task(peer_sync_config, forum_state.clone());
 
     // Start server
     let listener = TcpListener::bind(&bind_addr).await?;
@@ -570,6 +584,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  GET    /forums/:hash/boards   - List boards in forum");
     info!("  GET    /forums/:fh/boards/:bh/threads - List threads");
     info!("  GET    /forums/:fh/threads/:th/posts  - List posts");
+    info!("");
+    info!("Peer Sync Options:");
+    info!("  --peers <url1,url2,...>         - Peer relay URLs to sync from");
+    info!("  --sync-forums <hash1,hash2,...> - Specific forums to sync (optional)");
+    info!("  --sync-interval <seconds>       - Sync interval (default: 60)");
 
     // Use into_make_service_with_connect_info to make client IP available for rate limiting
     axum::serve(
