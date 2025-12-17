@@ -1,168 +1,24 @@
-//! Shared DAG operations for forum synchronization.
+//! Forum-specific DAG operations.
 //!
-//! These algorithms are used by both the relay server and client for:
-//! - Computing reachable nodes from a set of heads
-//! - Finding missing nodes between client and server states
-//! - Topologically sorting nodes (parents before children)
+//! This module re-exports the generic DAG operations from `crate::dag::ops`
+//! and provides forum-specific type aliases for convenience.
 //!
-//! All operations work on generic node collections to support both in-memory
-//! state (relay) and persistent storage (client).
+//! For the generic DAG trait and operations, see `crate::dag`.
 
-use crate::forum::{ContentHash, DagNode};
-use std::collections::{HashMap, HashSet, VecDeque};
+// Re-export the generic DAG operations trait
+pub use crate::dag::DagNodeOps;
 
-/// Computes all nodes reachable by walking backwards from heads.
-///
-/// Starting from the given head nodes, traverses parent links to find all
-/// ancestors. This is used to determine what nodes a client already has.
-///
-/// # Arguments
-/// * `nodes` - Map of all nodes in the DAG
-/// * `heads` - Starting points for traversal
-///
-/// # Returns
-/// Set of all reachable node hashes (including the heads themselves)
-pub fn compute_reachable(
-    nodes: &HashMap<ContentHash, DagNode>,
-    heads: &[ContentHash],
-) -> HashSet<ContentHash> {
-    let mut reachable = HashSet::new();
-    let mut queue: VecDeque<ContentHash> = heads.iter().copied().collect();
-
-    while let Some(hash) = queue.pop_front() {
-        if reachable.contains(&hash) {
-            continue;
-        }
-
-        if let Some(node) = nodes.get(&hash) {
-            reachable.insert(hash);
-            for parent_hash in node.parent_hashes() {
-                if !reachable.contains(&parent_hash) {
-                    queue.push_back(parent_hash);
-                }
-            }
-        }
-    }
-
-    reachable
-}
-
-/// Computes which nodes a client is missing given their known heads.
-///
-/// Returns hashes in topological order (parents before children), ensuring
-/// the client can process them sequentially without missing dependencies.
-///
-/// # Arguments
-/// * `nodes` - Map of all nodes in the DAG (server state)
-/// * `client_heads` - The head nodes the client currently has
-///
-/// # Returns
-/// Vector of missing node hashes in topological order
-pub fn compute_missing(
-    nodes: &HashMap<ContentHash, DagNode>,
-    client_heads: &[ContentHash],
-) -> Vec<ContentHash> {
-    // Compute what the client has by walking backwards from their heads
-    let client_has = compute_reachable(nodes, client_heads);
-
-    // Find nodes the client doesn't have
-    let mut missing: Vec<&DagNode> = nodes
-        .values()
-        .filter(|node| !client_has.contains(node.hash()))
-        .collect();
-
-    // Sort by created_at as initial approximation
-    missing.sort_by_key(|n| n.created_at());
-
-    // Proper topological sort: ensure parents come before children
-    topological_sort_hashes(&missing)
-}
-
-/// Sorts nodes into topological order (parents before children).
-///
-/// Uses Kahn's algorithm variant with created_at as tiebreaker.
-/// Guarantees that for any node in the result, all its parents that are
-/// also in the input appear earlier in the output.
-///
-/// # Arguments
-/// * `nodes` - Slice of node references to sort
-///
-/// # Returns
-/// Vector of node hashes in topological order
-pub fn topological_sort_hashes(nodes: &[&DagNode]) -> Vec<ContentHash> {
-    let node_set: HashSet<ContentHash> = nodes.iter().map(|n| *n.hash()).collect();
-    let mut result = Vec::with_capacity(nodes.len());
-    let mut added: HashSet<ContentHash> = HashSet::new();
-
-    // Keep iterating until all nodes are added
-    while added.len() < nodes.len() {
-        for node in nodes {
-            let hash = *node.hash();
-            if added.contains(&hash) {
-                continue;
-            }
-
-            // Check if all parents in the node set are already added
-            let parents_ready = node
-                .parent_hashes()
-                .iter()
-                .all(|parent| !node_set.contains(parent) || added.contains(parent));
-
-            if parents_ready {
-                result.push(hash);
-                added.insert(hash);
-            }
-        }
-    }
-
-    result
-}
-
-/// Returns nodes in topological order (parents before children).
-///
-/// Unlike `topological_sort_hashes`, this returns references to the actual
-/// nodes rather than just their hashes.
-///
-/// # Arguments
-/// * `nodes` - Map of all nodes in the DAG
-///
-/// # Returns
-/// Vector of node references in topological order
-pub fn nodes_in_topological_order(nodes: &HashMap<ContentHash, DagNode>) -> Vec<&DagNode> {
-    let mut node_vec: Vec<&DagNode> = nodes.values().collect();
-    node_vec.sort_by_key(|n| n.created_at());
-
-    let all_hashes: HashSet<ContentHash> = node_vec.iter().map(|n| *n.hash()).collect();
-    let mut result = Vec::with_capacity(node_vec.len());
-    let mut added: HashSet<ContentHash> = HashSet::new();
-
-    while added.len() < node_vec.len() {
-        for node in &node_vec {
-            let hash = *node.hash();
-            if added.contains(&hash) {
-                continue;
-            }
-
-            let parents_ready = node
-                .parent_hashes()
-                .iter()
-                .all(|parent| !all_hashes.contains(parent) || added.contains(parent));
-
-            if parents_ready {
-                result.push(*node);
-                added.insert(hash);
-            }
-        }
-    }
-
-    result
-}
+// Re-export generic functions - they work with any type implementing DagNodeOps
+pub use crate::dag::ops::{
+    compute_missing, compute_reachable, nodes_in_topological_order, topological_sort_hashes,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::crypto::KeyPair;
-    use crate::forum::{BoardGenesis, ForumGenesis, ThreadRoot};
+    use crate::forum::{BoardGenesis, ContentHash, DagNode, ForumGenesis, ThreadRoot};
+    use std::collections::HashMap;
 
     fn create_test_keypair() -> KeyPair {
         KeyPair::generate_mldsa87().expect("Failed to generate keypair")
@@ -180,7 +36,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut nodes = HashMap::new();
+        let mut nodes: HashMap<ContentHash, DagNode> = HashMap::new();
         let hash = *forum.hash();
         nodes.insert(hash, DagNode::from(forum));
 
@@ -222,7 +78,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut nodes = HashMap::new();
+        let mut nodes: HashMap<ContentHash, DagNode> = HashMap::new();
         nodes.insert(*forum.hash(), DagNode::from(forum.clone()));
         nodes.insert(*board.hash(), DagNode::from(board.clone()));
         nodes.insert(*thread.hash(), DagNode::from(thread.clone()));
@@ -264,7 +120,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut nodes = HashMap::new();
+        let mut nodes: HashMap<ContentHash, DagNode> = HashMap::new();
         nodes.insert(*forum.hash(), DagNode::from(forum.clone()));
         nodes.insert(*board.hash(), DagNode::from(board.clone()));
 
@@ -304,7 +160,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut nodes = HashMap::new();
+        let mut nodes: HashMap<ContentHash, DagNode> = HashMap::new();
         nodes.insert(*forum.hash(), DagNode::from(forum.clone()));
         nodes.insert(*board.hash(), DagNode::from(board.clone()));
 

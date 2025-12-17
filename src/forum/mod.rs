@@ -85,5 +85,5 @@ pub use sync::{
     SubmitNodeRequest, SubmitNodeResponse, SyncRequest, SyncResponse,
 };
 pub use thread::{ThreadRoot, ThreadRootContent};
-pub use types::{ContentHash, ModAction, NodeType};
+pub use types::{current_timestamp_millis, ContentHash, ModAction, NodeType};
 pub use validation::{validate_content_limits, validate_node, ValidationContext, ValidationResult};

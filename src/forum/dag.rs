@@ -9,6 +9,7 @@
 //! This enables generic processing of any node type while preserving
 //! type safety.
 
+use crate::dag::DagNodeOps;
 use crate::error::Result;
 use crate::forum::{
     BoardGenesis, ContentHash, EditNode, EncryptionIdentity, ForumGenesis, ModActionNode, NodeType,
@@ -262,6 +263,20 @@ impl DagNode {
             DagNode::SealedPrivateMessage(node) => Some(node),
             _ => None,
         }
+    }
+}
+
+impl DagNodeOps for DagNode {
+    fn hash(&self) -> &ContentHash {
+        self.hash()
+    }
+
+    fn parent_hashes(&self) -> Vec<ContentHash> {
+        self.parent_hashes()
+    }
+
+    fn created_at(&self) -> u64 {
+        self.created_at()
     }
 }
 
