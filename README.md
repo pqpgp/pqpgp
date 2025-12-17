@@ -108,7 +108,7 @@ PQPGP provides a web interface for easy key management, cryptographic operations
 # Build everything
 cargo build --release --workspace
 
-# Start the relay server (for multi-user chat)
+# Start the relay server (for multi-user chat and forum)
 ./target/release/pqpgp-relay
 # Relay runs on http://localhost:3001
 
@@ -143,6 +143,15 @@ For multi-user chat across different server instances, PQPGP includes a dedicate
 
 # Configure web server to use custom relay
 PQPGP_RELAY_URL=http://your-relay:8080 ./target/release/pqpgp-web
+
+# Sync from peer relays (for federation/redundancy)
+./target/release/pqpgp-relay --peers http://relay1.example.com,http://relay2.example.com
+
+# Sync only specific forums from peers
+./target/release/pqpgp-relay --peers http://relay1.example.com --sync-forums <hash1>,<hash2>
+
+# Set custom sync interval (default: 60 seconds)
+./target/release/pqpgp-relay --peers http://relay1.example.com --sync-interval 120
 ```
 
 **Relay Server Features:**
@@ -153,6 +162,7 @@ PQPGP_RELAY_URL=http://your-relay:8080 ./target/release/pqpgp-web
 - Stateless design (messages deleted after delivery)
 - Cryptographically random message IDs
 - **Forum hosting** with RocksDB-backed persistence
+- **Peer-to-peer sync** for relay federation and redundancy
 - **IP-based rate limiting** with token bucket algorithm (separate limits for reads/writes)
 - **Graceful error recovery** for lock poisoning
 
@@ -534,12 +544,13 @@ Invalid nodes are rejected and not stored, protecting against malicious relays.
 
 ```
 bin/relay/
-├── Cargo.toml           # Relay server dependencies (axum, rocksdb)
+├── Cargo.toml           # Relay server dependencies (axum, rocksdb, reqwest)
 └── src/
     ├── main.rs          # Message relay server + forum router
     ├── forum_handlers.rs # Forum API handlers with validation
     ├── forum_state.rs   # Forum DAG state management
     ├── forum_persistence.rs # RocksDB-backed persistence
+    ├── peer_sync.rs     # Relay-to-relay synchronization
     └── rate_limit.rs    # IP-based rate limiting middleware
 
 # Messaging Endpoints:
