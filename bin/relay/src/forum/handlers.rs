@@ -31,12 +31,16 @@ use axum::{
     Json,
 };
 use pqpgp::crypto::PublicKey;
+use pqpgp::forum::constants::{
+    MAX_EXPORT_PAGE_SIZE, MAX_FETCH_BATCH_SIZE, MAX_FORUMS, MAX_NODES_PER_FORUM,
+    MAX_SYNC_MISSING_HASHES,
+};
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{
-    validate_node, ContentHash, DagNode, ExportForumResponse, FetchNodesRequest,
-    FetchNodesResponse, SerializedNode, SubmitNodeRequest, SubmitNodeResponse, SyncRequest,
-    SyncResponse, ValidationContext,
+    validate_content_limits, validate_node, ContentHash, DagNode, ExportForumResponse,
+    FetchNodesRequest, FetchNodesResponse, SerializedNode, SubmitNodeRequest, SubmitNodeResponse,
+    SyncRequest, SyncResponse, ValidationContext,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -69,180 +73,10 @@ fn acquire_write_lock(
     })
 }
 
-// =============================================================================
-// Security Constants
-// =============================================================================
-
-/// Maximum number of hashes allowed in a single fetch request.
-const MAX_FETCH_BATCH_SIZE: usize = 1000;
-
-/// Maximum number of missing hashes returned in a sync response.
-const MAX_SYNC_MISSING_HASHES: usize = 10000;
-
-/// Maximum nodes returned in a single export page.
-const MAX_EXPORT_PAGE_SIZE: usize = 1000;
-
-/// Maximum length for forum/board names.
-const MAX_NAME_LENGTH: usize = 256;
-
-/// Maximum length for forum/board descriptions.
-const MAX_DESCRIPTION_LENGTH: usize = 10 * 1024; // 10KB
-
-/// Maximum length for thread titles.
-const MAX_TITLE_LENGTH: usize = 512;
-
-/// Maximum length for thread/post body content.
-const MAX_BODY_LENGTH: usize = 100 * 1024; // 100KB
-
-/// Maximum number of tags per board.
-const MAX_TAGS_COUNT: usize = 10;
-
-/// Maximum length of a single tag.
-const MAX_TAG_LENGTH: usize = 64;
-
-/// Minimum valid timestamp (2024-01-01 00:00:00 UTC in milliseconds).
-/// Nodes with timestamps before this are rejected as invalid.
-const MIN_VALID_TIMESTAMP_MS: u64 = 1704067200000;
-
-// =============================================================================
-// Global Resource Limits
-// =============================================================================
-
-/// Maximum number of forums that can be hosted on this relay.
-/// This prevents storage exhaustion attacks by limiting forum creation.
-const MAX_FORUMS: usize = 10000;
-
-/// Maximum number of nodes per forum (includes all node types).
-/// This prevents any single forum from consuming excessive storage.
-const MAX_NODES_PER_FORUM: usize = 1_000_000;
-
 /// Computes a fingerprint from raw ML-DSA-87 identity bytes and returns first 8 bytes as hex.
 fn compute_identity_fingerprint(identity: &[u8]) -> String {
     let fingerprint = PublicKey::fingerprint_from_mldsa87_bytes(identity);
     hex::encode(&fingerprint[..8])
-}
-
-/// Validates content size limits for a node.
-///
-/// Returns an error message if any content exceeds limits, or None if valid.
-fn validate_content_limits(node: &DagNode) -> Option<String> {
-    match node {
-        DagNode::ForumGenesis(forum) => {
-            if forum.name().len() > MAX_NAME_LENGTH {
-                return Some(format!(
-                    "Forum name exceeds maximum length of {} characters",
-                    MAX_NAME_LENGTH
-                ));
-            }
-            if forum.description().len() > MAX_DESCRIPTION_LENGTH {
-                return Some(format!(
-                    "Forum description exceeds maximum length of {} bytes",
-                    MAX_DESCRIPTION_LENGTH
-                ));
-            }
-            if forum.created_at() < MIN_VALID_TIMESTAMP_MS {
-                return Some("Forum timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::BoardGenesis(board) => {
-            if board.name().len() > MAX_NAME_LENGTH {
-                return Some(format!(
-                    "Board name exceeds maximum length of {} characters",
-                    MAX_NAME_LENGTH
-                ));
-            }
-            if board.description().len() > MAX_DESCRIPTION_LENGTH {
-                return Some(format!(
-                    "Board description exceeds maximum length of {} bytes",
-                    MAX_DESCRIPTION_LENGTH
-                ));
-            }
-            if board.tags().len() > MAX_TAGS_COUNT {
-                return Some(format!("Board has too many tags (max {})", MAX_TAGS_COUNT));
-            }
-            for tag in board.tags() {
-                if tag.len() > MAX_TAG_LENGTH {
-                    return Some(format!(
-                        "Tag exceeds maximum length of {} characters",
-                        MAX_TAG_LENGTH
-                    ));
-                }
-            }
-            if board.created_at() < MIN_VALID_TIMESTAMP_MS {
-                return Some("Board timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::ThreadRoot(thread) => {
-            if thread.title().len() > MAX_TITLE_LENGTH {
-                return Some(format!(
-                    "Thread title exceeds maximum length of {} characters",
-                    MAX_TITLE_LENGTH
-                ));
-            }
-            if thread.body().len() > MAX_BODY_LENGTH {
-                return Some(format!(
-                    "Thread body exceeds maximum length of {} bytes",
-                    MAX_BODY_LENGTH
-                ));
-            }
-            if thread.created_at() < MIN_VALID_TIMESTAMP_MS {
-                return Some("Thread timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::Post(post) => {
-            if post.body().len() > MAX_BODY_LENGTH {
-                return Some(format!(
-                    "Post body exceeds maximum length of {} bytes",
-                    MAX_BODY_LENGTH
-                ));
-            }
-            if post.created_at() < MIN_VALID_TIMESTAMP_MS {
-                return Some("Post timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::ModAction(action) => {
-            if action.created_at() < MIN_VALID_TIMESTAMP_MS {
-                return Some("Mod action timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::Edit(edit) => {
-            // Check edited content limits
-            if let Some(name) = edit.new_name() {
-                if name.len() > MAX_NAME_LENGTH {
-                    return Some(format!(
-                        "Edit name exceeds maximum length of {} characters",
-                        MAX_NAME_LENGTH
-                    ));
-                }
-            }
-            if let Some(desc) = edit.new_description() {
-                if desc.len() > MAX_DESCRIPTION_LENGTH {
-                    return Some(format!(
-                        "Edit description exceeds maximum length of {} bytes",
-                        MAX_DESCRIPTION_LENGTH
-                    ));
-                }
-            }
-            if edit.created_at() < MIN_VALID_TIMESTAMP_MS {
-                return Some("Edit timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::EncryptionIdentity(identity) => {
-            // Encryption identities have size limits enforced by the library
-            // Just validate timestamp for reasonableness
-            if identity.content.created_at < MIN_VALID_TIMESTAMP_MS {
-                return Some("Encryption identity timestamp is unreasonably old".to_string());
-            }
-        }
-        DagNode::SealedPrivateMessage(sealed) => {
-            // Sealed messages have payload size enforced by the library (100KB max)
-            // Just validate timestamp for reasonableness
-            if sealed.content.created_at < MIN_VALID_TIMESTAMP_MS {
-                return Some("Sealed message timestamp is unreasonably old".to_string());
-            }
-        }
-    }
-    None
 }
 
 /// Thread-safe forum state
@@ -470,7 +304,7 @@ pub async fn sync_forum(
     };
 
     // Compute what the client is missing
-    let mut missing = forum.compute_missing(&request.known_heads);
+    let mut missing = forum.compute_missing_nodes(&request.known_heads);
 
     // Apply client-specified limit, but enforce server maximum
     let client_max = request.max_results.unwrap_or(MAX_SYNC_MISSING_HASHES);

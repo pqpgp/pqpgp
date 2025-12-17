@@ -11,13 +11,10 @@
 
 use crate::crypto::{sign_data, verify_data_signature, PublicKey, Signature};
 use crate::error::{PqpgpError, Result};
+use crate::forum::constants::MAX_MOD_ACTION_PARENTS;
 use crate::forum::types::{current_timestamp_millis, ContentHash, ModAction, NodeType};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
-/// Maximum number of parent hashes a mod action can reference.
-/// Set high enough to handle active forums with many concurrent heads.
-pub const MAX_MOD_ACTION_PARENTS: usize = 50;
 
 /// The content of a moderation action node that gets signed and hashed.
 ///

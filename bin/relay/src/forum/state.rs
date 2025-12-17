@@ -3,10 +3,11 @@
 //! This module manages the server-side state for forum DAG synchronization.
 //! The relay stores all forum nodes and tracks DAG heads for efficient sync.
 
+use pqpgp::forum::dag_ops::{compute_missing, compute_reachable, nodes_in_topological_order};
 use pqpgp::forum::{
     ContentHash, DagNode, EditType, ForumGenesis, ForumPermissions, NodeType, PermissionBuilder,
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 /// State for a single forum.
 #[derive(Debug, Default)]
@@ -84,102 +85,18 @@ impl ForumState {
     /// Computes which nodes a client is missing given their known heads.
     ///
     /// Returns hashes in topological order (parents before children).
-    pub fn compute_missing(&self, client_heads: &[ContentHash]) -> Vec<ContentHash> {
-        // Compute what the client has by walking backwards from their heads
-        let client_has = self.compute_reachable(client_heads);
-
-        // Find nodes the client doesn't have
-        let mut missing: Vec<&DagNode> = self
-            .nodes
-            .values()
-            .filter(|node| !client_has.contains(node.hash()))
-            .collect();
-
-        // Sort topologically (by created_at as approximation, then by parent depth)
-        missing.sort_by_key(|n| n.created_at());
-
-        // Better topological sort: ensure parents come before children
-        let missing_set: HashSet<ContentHash> = missing.iter().map(|n| *n.hash()).collect();
-        let mut result = Vec::new();
-        let mut added: HashSet<ContentHash> = HashSet::new();
-
-        // Keep iterating until all nodes are added
-        while added.len() < missing.len() {
-            for node in &missing {
-                let hash = *node.hash();
-                if added.contains(&hash) {
-                    continue;
-                }
-
-                // Check if all parents in missing set are already added
-                let parents_ready = node
-                    .parent_hashes()
-                    .iter()
-                    .all(|parent| !missing_set.contains(parent) || added.contains(parent));
-
-                if parents_ready {
-                    result.push(hash);
-                    added.insert(hash);
-                }
-            }
-        }
-
-        result
+    pub fn compute_missing_nodes(&self, client_heads: &[ContentHash]) -> Vec<ContentHash> {
+        compute_missing(&self.nodes, client_heads)
     }
 
     /// Computes all nodes reachable by walking backwards from heads.
-    fn compute_reachable(&self, heads: &[ContentHash]) -> HashSet<ContentHash> {
-        let mut reachable = HashSet::new();
-        let mut queue: VecDeque<ContentHash> = heads.iter().copied().collect();
-
-        while let Some(hash) = queue.pop_front() {
-            if reachable.contains(&hash) {
-                continue;
-            }
-
-            if let Some(node) = self.nodes.get(&hash) {
-                reachable.insert(hash);
-                for parent_hash in node.parent_hashes() {
-                    if !reachable.contains(&parent_hash) {
-                        queue.push_back(parent_hash);
-                    }
-                }
-            }
-        }
-
-        reachable
+    pub fn compute_reachable_nodes(&self, heads: &[ContentHash]) -> HashSet<ContentHash> {
+        compute_reachable(&self.nodes, heads)
     }
 
     /// Returns all nodes in topological order.
     pub fn nodes_in_order(&self) -> Vec<&DagNode> {
-        let mut nodes: Vec<&DagNode> = self.nodes.values().collect();
-        nodes.sort_by_key(|n| n.created_at());
-
-        // Proper topological sort
-        let all_hashes: HashSet<ContentHash> = nodes.iter().map(|n| *n.hash()).collect();
-        let mut result = Vec::new();
-        let mut added: HashSet<ContentHash> = HashSet::new();
-
-        while added.len() < nodes.len() {
-            for node in &nodes {
-                let hash = *node.hash();
-                if added.contains(&hash) {
-                    continue;
-                }
-
-                let parents_ready = node
-                    .parent_hashes()
-                    .iter()
-                    .all(|parent| !all_hashes.contains(parent) || added.contains(parent));
-
-                if parents_ready {
-                    result.push(*node);
-                    added.insert(hash);
-                }
-            }
-        }
-
-        result
+        nodes_in_topological_order(&self.nodes)
     }
 
     /// Rebuilds permissions from scratch by replaying all nodes.
@@ -424,16 +341,16 @@ mod tests {
         state.add_node(DagNode::from(board.clone()));
 
         // Client with empty heads should get everything
-        let missing = state.compute_missing(&[]);
+        let missing = state.compute_missing_nodes(&[]);
         assert_eq!(missing.len(), 2);
 
         // Client with genesis should only need board
-        let missing = state.compute_missing(&[*genesis.hash()]);
+        let missing = state.compute_missing_nodes(&[*genesis.hash()]);
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0], *board.hash());
 
         // Client with board should need nothing
-        let missing = state.compute_missing(&[*board.hash()]);
+        let missing = state.compute_missing_nodes(&[*board.hash()]);
         assert!(missing.is_empty());
     }
 

@@ -29,8 +29,10 @@
 
 mod board;
 pub mod client;
+pub mod constants;
 mod conversation;
 mod dag;
+pub mod dag_ops;
 mod edit;
 mod encryption_identity;
 mod genesis;
@@ -82,4 +84,4 @@ pub use sync::{
 };
 pub use thread::{ThreadRoot, ThreadRootContent};
 pub use types::{ContentHash, ModAction, NodeType};
-pub use validation::{validate_node, ValidationContext, ValidationResult};
+pub use validation::{validate_content_limits, validate_node, ValidationContext, ValidationResult};

@@ -12,38 +12,17 @@
 
 use crate::crypto::PublicKey;
 use crate::error::{PqpgpError, Result};
+use crate::forum::constants::{
+    MAX_CLOCK_SKEW_MS, MAX_DESCRIPTION_SIZE, MAX_NAME_SIZE, MAX_PARENT_HASHES, MAX_POST_BODY_SIZE,
+    MAX_TAGS_COUNT, MAX_TAG_SIZE, MAX_THREAD_BODY_SIZE, MAX_THREAD_TITLE_SIZE,
+    MIN_VALID_TIMESTAMP_MS,
+};
 use crate::forum::permissions::ForumPermissions;
 use crate::forum::{
     BoardGenesis, ContentHash, DagNode, EditNode, EditType, ForumGenesis, ModAction, ModActionNode,
     NodeType, Post, ThreadRoot,
 };
 use std::collections::HashMap;
-
-/// Maximum allowed clock skew for timestamps (5 minutes in milliseconds).
-const MAX_CLOCK_SKEW_MS: u64 = 5 * 60 * 1000;
-
-/// Minimum valid timestamp (2024-01-01 00:00:00 UTC in milliseconds).
-/// Prevents nodes with unreasonably old or zero timestamps.
-const MIN_VALID_TIMESTAMP_MS: u64 = 1704067200000;
-
-/// Maximum number of parent hashes allowed in a post.
-/// Set high enough to handle active forums with many concurrent heads.
-const MAX_POST_PARENT_HASHES: usize = 50;
-
-/// Maximum post body size (100KB).
-const MAX_POST_BODY_SIZE: usize = 100 * 1024;
-
-/// Maximum thread title size (512 bytes).
-const MAX_THREAD_TITLE_SIZE: usize = 512;
-
-/// Maximum thread body size (100KB).
-const MAX_THREAD_BODY_SIZE: usize = 100 * 1024;
-
-/// Maximum forum/board name size (256 bytes).
-const MAX_NAME_SIZE: usize = 256;
-
-/// Maximum forum/board description size (10KB).
-const MAX_DESCRIPTION_SIZE: usize = 10 * 1024;
 
 /// Context for validating nodes against the existing DAG state.
 #[derive(Debug)]
@@ -328,11 +307,11 @@ pub fn validate_post(post: &Post, ctx: &ValidationContext) -> Result<ValidationR
     }
 
     // Validate parent hash count
-    if post.parent_hashes().len() > MAX_POST_PARENT_HASHES {
+    if post.parent_hashes().len() > MAX_PARENT_HASHES {
         result.add_error(format!(
             "Too many parent hashes: {} (max {})",
             post.parent_hashes().len(),
-            MAX_POST_PARENT_HASHES
+            MAX_PARENT_HASHES
         ));
     }
 
@@ -946,6 +925,128 @@ fn validate_sealed_private_message(
     }
 
     Ok(result)
+}
+
+/// Validates content size limits for a node.
+///
+/// This is a quick validation that checks content sizes without verifying
+/// signatures or parent existence. Useful for early rejection of obviously
+/// invalid nodes.
+///
+/// Returns an error message if any content exceeds limits, or None if valid.
+pub fn validate_content_limits(node: &DagNode) -> Option<String> {
+    match node {
+        DagNode::ForumGenesis(forum) => {
+            if forum.name().len() > MAX_NAME_SIZE {
+                return Some(format!(
+                    "Forum name exceeds maximum length of {} bytes",
+                    MAX_NAME_SIZE
+                ));
+            }
+            if forum.description().len() > MAX_DESCRIPTION_SIZE {
+                return Some(format!(
+                    "Forum description exceeds maximum length of {} bytes",
+                    MAX_DESCRIPTION_SIZE
+                ));
+            }
+            if forum.created_at() < MIN_VALID_TIMESTAMP_MS {
+                return Some("Forum timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::BoardGenesis(board) => {
+            if board.name().len() > MAX_NAME_SIZE {
+                return Some(format!(
+                    "Board name exceeds maximum length of {} bytes",
+                    MAX_NAME_SIZE
+                ));
+            }
+            if board.description().len() > MAX_DESCRIPTION_SIZE {
+                return Some(format!(
+                    "Board description exceeds maximum length of {} bytes",
+                    MAX_DESCRIPTION_SIZE
+                ));
+            }
+            if board.tags().len() > MAX_TAGS_COUNT {
+                return Some(format!("Board has too many tags (max {})", MAX_TAGS_COUNT));
+            }
+            for tag in board.tags() {
+                if tag.len() > MAX_TAG_SIZE {
+                    return Some(format!(
+                        "Tag exceeds maximum length of {} bytes",
+                        MAX_TAG_SIZE
+                    ));
+                }
+            }
+            if board.created_at() < MIN_VALID_TIMESTAMP_MS {
+                return Some("Board timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::ThreadRoot(thread) => {
+            if thread.title().len() > MAX_THREAD_TITLE_SIZE {
+                return Some(format!(
+                    "Thread title exceeds maximum length of {} bytes",
+                    MAX_THREAD_TITLE_SIZE
+                ));
+            }
+            if thread.body().len() > MAX_THREAD_BODY_SIZE {
+                return Some(format!(
+                    "Thread body exceeds maximum length of {} bytes",
+                    MAX_THREAD_BODY_SIZE
+                ));
+            }
+            if thread.created_at() < MIN_VALID_TIMESTAMP_MS {
+                return Some("Thread timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::Post(post) => {
+            if post.body().len() > MAX_POST_BODY_SIZE {
+                return Some(format!(
+                    "Post body exceeds maximum length of {} bytes",
+                    MAX_POST_BODY_SIZE
+                ));
+            }
+            if post.created_at() < MIN_VALID_TIMESTAMP_MS {
+                return Some("Post timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::ModAction(action) => {
+            if action.created_at() < MIN_VALID_TIMESTAMP_MS {
+                return Some("Mod action timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::Edit(edit) => {
+            if let Some(name) = edit.new_name() {
+                if name.len() > MAX_NAME_SIZE {
+                    return Some(format!(
+                        "Edit name exceeds maximum length of {} bytes",
+                        MAX_NAME_SIZE
+                    ));
+                }
+            }
+            if let Some(desc) = edit.new_description() {
+                if desc.len() > MAX_DESCRIPTION_SIZE {
+                    return Some(format!(
+                        "Edit description exceeds maximum length of {} bytes",
+                        MAX_DESCRIPTION_SIZE
+                    ));
+                }
+            }
+            if edit.created_at() < MIN_VALID_TIMESTAMP_MS {
+                return Some("Edit timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::EncryptionIdentity(identity) => {
+            if identity.content.created_at < MIN_VALID_TIMESTAMP_MS {
+                return Some("Encryption identity timestamp is unreasonably old".to_string());
+            }
+        }
+        DagNode::SealedPrivateMessage(sealed) => {
+            if sealed.content.created_at < MIN_VALID_TIMESTAMP_MS {
+                return Some("Sealed message timestamp is unreasonably old".to_string());
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

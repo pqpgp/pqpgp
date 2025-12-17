@@ -10,16 +10,10 @@
 
 use crate::crypto::{sign_data, verify_data_signature, PublicKey, Signature};
 use crate::error::{PqpgpError, Result};
+use crate::forum::constants::{MAX_PARENT_HASHES, MAX_POST_BODY_SIZE};
 use crate::forum::types::{current_timestamp_millis, ContentHash, NodeType};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
-/// Maximum length for post body in bytes (100 KB).
-pub const MAX_POST_BODY_SIZE: usize = 100 * 1024;
-
-/// Maximum number of parent hashes a post can reference.
-/// Set high enough to handle active forums with many concurrent heads.
-pub const MAX_PARENT_HASHES: usize = 50;
 
 /// The content of a post node that gets signed and hashed.
 ///
