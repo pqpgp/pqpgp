@@ -73,13 +73,25 @@ pqpgp-relay --peers http://relay1.example.com --sync-interval 120
 - **Tamper-Proof**: Invalid or modified nodes are rejected
 - **Censorship-Resistant**: Multiple relays provide redundancy
 
+## HTTP Endpoints
+
+| Endpoint  | Method | Description                              |
+| --------- | ------ | ---------------------------------------- |
+| `/rpc`    | POST   | JSON-RPC 2.0 endpoint                    |
+| `/health` | GET    | Health check for load balancers/monitors |
+
+### Health Check
+
+Simple endpoint for load balancers and monitoring tools:
+
+```bash
+curl http://localhost:3001/health
+# {"status":"ok"}
+```
+
 ## JSON-RPC 2.0 API
 
-All operations use a single JSON-RPC 2.0 endpoint:
-
-| Endpoint | Method | Description           |
-| -------- | ------ | --------------------- |
-| `/rpc`   | POST   | JSON-RPC 2.0 endpoint |
+All RPC operations use the `/rpc` endpoint:
 
 ### Available Methods
 
