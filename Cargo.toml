@@ -44,7 +44,7 @@ bincode = "1.3.3"          # Binary serialization
 hex = "0.4.3"              # Hexadecimal encoding
 
 # Error handling
-thiserror = "1.0"          # Error handling macros
+thiserror = "2.0"          # Error handling macros
 
 # Logging and tracing
 tracing = "0.1"
