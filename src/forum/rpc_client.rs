@@ -1,15 +1,15 @@
-//! JSON-RPC 2.0 client helpers for forum sync.
+//! Forum-specific JSON-RPC 2.0 types and client helpers.
 //!
-//! This module provides types and utilities for making JSON-RPC 2.0 calls
-//! to forum relay servers. It handles the RPC protocol wrapping while
-//! using the existing sync types from the `sync` module.
+//! This module provides forum-specific RPC method parameters, results,
+//! and a specialized client helper for forum operations. It builds on
+//! the generic RPC types from [`crate::rpc`].
 //!
 //! ## Usage
 //!
 //! ```ignore
-//! use pqpgp::forum::rpc_client::RpcClient;
+//! use pqpgp::forum::rpc_client::ForumRpcClient;
 //!
-//! let client = RpcClient::new("http://relay.example.com/forums/rpc");
+//! let client = ForumRpcClient::new("http://relay.example.com/rpc");
 //!
 //! // List forums
 //! let request = client.build_list_request();
@@ -22,245 +22,16 @@
 
 use crate::error::{PqpgpError, Result};
 use crate::forum::{ContentHash, DagNode};
-use ::base64::Engine;
-use ::serde_json::Value;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+
+// Re-export core RPC types for backwards compatibility
+pub use crate::rpc::{
+    RpcClient, RpcError, RpcRequest, RpcResponse, RpcServerRequest, RpcServerResponse,
+};
 
 // =============================================================================
-// JSON-RPC 2.0 Types
-// =============================================================================
-
-// =============================================================================
-// Client-side RPC Types (for building requests and parsing responses)
-// =============================================================================
-
-/// JSON-RPC 2.0 request (client-side, for building requests).
-#[derive(Debug, Clone, Serialize)]
-pub struct RpcRequest {
-    /// Protocol version (always "2.0").
-    pub jsonrpc: &'static str,
-    /// Method name.
-    pub method: &'static str,
-    /// Method parameters.
-    pub params: Value,
-    /// Request ID.
-    pub id: u64,
-}
-
-impl RpcRequest {
-    /// Creates a new RPC request.
-    pub fn new(method: &'static str, params: impl Serialize) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            method,
-            params: ::serde_json::to_value(params).unwrap_or(Value::Null),
-            id: 1,
-        }
-    }
-
-    /// Creates a new RPC request with a specific ID.
-    pub fn with_id(method: &'static str, params: impl Serialize, id: u64) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            method,
-            params: ::serde_json::to_value(params).unwrap_or(Value::Null),
-            id,
-        }
-    }
-}
-
-/// JSON-RPC 2.0 response (client-side, for parsing responses).
-#[derive(Debug, Clone, Deserialize)]
-pub struct RpcResponse {
-    /// Protocol version.
-    pub jsonrpc: String,
-    /// Result (present on success).
-    pub result: Option<Value>,
-    /// Error (present on failure).
-    pub error: Option<RpcError>,
-    /// Request ID.
-    pub id: Option<Value>,
-}
-
-impl RpcResponse {
-    /// Extracts the result value, returning an error if the response contains an error.
-    pub fn into_result(self) -> Result<Value> {
-        if let Some(err) = self.error {
-            return Err(PqpgpError::Chat(format!(
-                "RPC error {}: {}",
-                err.code, err.message
-            )));
-        }
-
-        self.result
-            .ok_or_else(|| PqpgpError::Chat("Empty RPC result".to_string()))
-    }
-
-    /// Extracts and deserializes the result as a specific type.
-    pub fn into_typed_result<T: DeserializeOwned>(self) -> Result<T> {
-        let value = self.into_result()?;
-        ::serde_json::from_value(value)
-            .map_err(|e| PqpgpError::Serialization(format!("Failed to parse RPC result: {}", e)))
-    }
-}
-
-// =============================================================================
-// Server-side RPC Types (for receiving requests and building responses)
-// =============================================================================
-
-/// JSON-RPC 2.0 request (server-side, for receiving requests).
-#[derive(Debug, Clone, Deserialize)]
-pub struct RpcServerRequest {
-    /// Protocol version.
-    pub jsonrpc: String,
-    /// Method name.
-    pub method: String,
-    /// Method parameters.
-    #[serde(default)]
-    pub params: Value,
-    /// Request ID.
-    pub id: Option<Value>,
-}
-
-/// JSON-RPC 2.0 response (server-side, for building responses).
-#[derive(Debug, Clone, Serialize)]
-pub struct RpcServerResponse {
-    /// Protocol version (always "2.0").
-    pub jsonrpc: &'static str,
-    /// Result (present on success).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-    /// Error (present on failure).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<RpcError>,
-    /// Request ID.
-    pub id: Option<Value>,
-}
-
-impl RpcServerResponse {
-    /// Creates a success response.
-    pub fn success(id: Option<Value>, result: impl Serialize) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: Some(::serde_json::to_value(result).unwrap_or(Value::Null)),
-            error: None,
-            id,
-        }
-    }
-
-    /// Creates an error response.
-    pub fn error(id: Option<Value>, error: RpcError) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: None,
-            error: Some(error),
-            id,
-        }
-    }
-}
-
-/// JSON-RPC 2.0 error object.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RpcError {
-    /// Error code.
-    pub code: i32,
-    /// Error message.
-    pub message: String,
-    /// Additional error data.
-    pub data: Option<Value>,
-}
-
-impl RpcError {
-    // Standard JSON-RPC 2.0 error codes
-    /// Parse error (-32700).
-    pub const PARSE_ERROR: i32 = -32700;
-    /// Invalid request (-32600).
-    pub const INVALID_REQUEST: i32 = -32600;
-    /// Method not found (-32601).
-    pub const METHOD_NOT_FOUND: i32 = -32601;
-    /// Invalid params (-32602).
-    pub const INVALID_PARAMS: i32 = -32602;
-    /// Internal error (-32603).
-    pub const INTERNAL_ERROR: i32 = -32603;
-
-    // Application-specific error codes (-32000 to -32099)
-    /// Forum not found (-32001).
-    pub const FORUM_NOT_FOUND: i32 = -32001;
-    /// Validation failed (-32002).
-    pub const VALIDATION_FAILED: i32 = -32002;
-    /// Rate limited (-32003).
-    pub const RATE_LIMITED: i32 = -32003;
-    /// Resource exhausted (-32004).
-    pub const RESOURCE_EXHAUSTED: i32 = -32004;
-
-    /// Creates an invalid request error.
-    pub fn invalid_request(msg: impl Into<String>) -> Self {
-        Self {
-            code: Self::INVALID_REQUEST,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    /// Creates a method not found error.
-    pub fn method_not_found(method: &str) -> Self {
-        Self {
-            code: Self::METHOD_NOT_FOUND,
-            message: format!("Method '{}' not found", method),
-            data: None,
-        }
-    }
-
-    /// Creates an invalid params error.
-    pub fn invalid_params(msg: impl Into<String>) -> Self {
-        Self {
-            code: Self::INVALID_PARAMS,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    /// Creates an internal error.
-    pub fn internal_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: Self::INTERNAL_ERROR,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    /// Creates a not found error.
-    pub fn not_found(msg: impl Into<String>) -> Self {
-        Self {
-            code: Self::FORUM_NOT_FOUND,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    /// Creates a validation failed error with details.
-    pub fn validation_failed(errors: Vec<String>) -> Self {
-        Self {
-            code: Self::VALIDATION_FAILED,
-            message: "Validation failed".to_string(),
-            data: Some(Value::Array(
-                errors.into_iter().map(Value::String).collect(),
-            )),
-        }
-    }
-
-    /// Creates a resource exhausted error.
-    pub fn resource_exhausted(msg: impl Into<String>) -> Self {
-        Self {
-            code: Self::RESOURCE_EXHAUSTED,
-            message: msg.into(),
-            data: None,
-        }
-    }
-}
-
-// =============================================================================
-// RPC Method Parameters
+// Forum RPC Method Parameters
 // =============================================================================
 
 /// Parameters for `forum.sync` method.
@@ -304,7 +75,7 @@ pub struct ExportParams {
 }
 
 // =============================================================================
-// RPC Method Results
+// Forum RPC Method Results
 // =============================================================================
 
 /// Result from `forum.list` method.
@@ -369,7 +140,7 @@ impl FetchResult {
         for node_data in &self.nodes {
             let hash = ContentHash::from_hex(&node_data.hash)
                 .map_err(|e| PqpgpError::Serialization(format!("Invalid hash: {}", e)))?;
-            let data = ::base64::engine::general_purpose::STANDARD
+            let data = base64::engine::general_purpose::STANDARD
                 .decode(&node_data.data)
                 .map_err(|e| PqpgpError::Serialization(format!("Invalid base64: {}", e)))?;
             let node = DagNode::from_bytes(&data)?;
@@ -428,39 +199,37 @@ pub struct StatsResult {
 }
 
 // =============================================================================
-// RPC Client Helper
+// Forum RPC Client Helper
 // =============================================================================
 
 /// Helper for building JSON-RPC 2.0 requests for forum operations.
 ///
-/// This struct provides convenient methods to build properly formatted
-/// RPC requests. The actual HTTP transport is left to the application.
+/// This struct wraps the generic [`RpcClient`] and provides convenient
+/// methods to build properly formatted requests for forum-specific RPC
+/// methods. The actual HTTP transport is left to the application.
 #[derive(Debug)]
-pub struct RpcClient {
-    /// RPC endpoint URL.
-    pub endpoint: String,
-    /// Next request ID.
-    next_id: std::sync::atomic::AtomicU64,
+pub struct ForumRpcClient {
+    /// The underlying generic RPC client.
+    inner: RpcClient,
 }
 
-impl RpcClient {
-    /// Creates a new RPC client helper.
+impl ForumRpcClient {
+    /// Creates a new forum RPC client helper.
     pub fn new(endpoint: impl Into<String>) -> Self {
         Self {
-            endpoint: endpoint.into(),
-            next_id: std::sync::atomic::AtomicU64::new(1),
+            inner: RpcClient::new(endpoint),
         }
     }
 
-    /// Returns the next request ID.
-    fn next_id(&self) -> u64 {
-        self.next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    /// Returns a reference to the endpoint URL.
+    pub fn endpoint(&self) -> &str {
+        &self.inner.endpoint
     }
 
     /// Builds a `forum.list` request.
     pub fn build_list_request(&self) -> RpcRequest {
-        RpcRequest::with_id("forum.list", ::serde_json::json!({}), self.next_id())
+        self.inner
+            .build_request("forum.list", serde_json::json!({}))
     }
 
     /// Builds a `forum.sync` request.
@@ -475,7 +244,7 @@ impl RpcClient {
             known_heads: known_heads.iter().map(|h| h.to_hex()).collect(),
             max_results,
         };
-        RpcRequest::with_id("forum.sync", params, self.next_id())
+        self.inner.build_request("forum.sync", params)
     }
 
     /// Builds a `forum.fetch` request.
@@ -483,7 +252,7 @@ impl RpcClient {
         let params = FetchParams {
             hashes: hashes.iter().map(|h| h.to_hex()).collect(),
         };
-        RpcRequest::with_id("forum.fetch", params, self.next_id())
+        self.inner.build_request("forum.fetch", params)
     }
 
     /// Builds a `forum.submit` request.
@@ -495,9 +264,9 @@ impl RpcClient {
         let node_data = node.to_bytes()?;
         let params = SubmitParams {
             forum_hash: forum_hash.to_hex(),
-            node_data: ::base64::engine::general_purpose::STANDARD.encode(&node_data),
+            node_data: base64::engine::general_purpose::STANDARD.encode(&node_data),
         };
-        Ok(RpcRequest::with_id("forum.submit", params, self.next_id()))
+        Ok(self.inner.build_request("forum.submit", params))
     }
 
     /// Builds a `forum.export` request.
@@ -512,12 +281,13 @@ impl RpcClient {
             page,
             page_size,
         };
-        RpcRequest::with_id("forum.export", params, self.next_id())
+        self.inner.build_request("forum.export", params)
     }
 
     /// Builds a `forum.stats` request.
     pub fn build_stats_request(&self) -> RpcRequest {
-        RpcRequest::with_id("forum.stats", ::serde_json::json!({}), self.next_id())
+        self.inner
+            .build_request("forum.stats", serde_json::json!({}))
     }
 
     /// Parses a `forum.list` response.
@@ -556,17 +326,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rpc_request_serialization() {
-        let request = RpcRequest::new("forum.list", serde_json::json!({}));
-        let json = serde_json::to_string(&request).unwrap();
-
-        assert!(json.contains("\"jsonrpc\":\"2.0\""));
-        assert!(json.contains("\"method\":\"forum.list\""));
-    }
-
-    #[test]
-    fn test_rpc_client_list_request() {
-        let client = RpcClient::new("http://localhost:3001/forums/rpc");
+    fn test_forum_rpc_client_list_request() {
+        let client = ForumRpcClient::new("http://localhost:3001/rpc");
         let request = client.build_list_request();
 
         assert_eq!(request.method, "forum.list");
@@ -574,8 +335,8 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_client_sync_request() {
-        let client = RpcClient::new("http://localhost:3001/forums/rpc");
+    fn test_forum_rpc_client_sync_request() {
+        let client = ForumRpcClient::new("http://localhost:3001/rpc");
         let forum_hash = ContentHash::from_bytes([1u8; 64]);
         let heads = vec![ContentHash::from_bytes([2u8; 64])];
 
@@ -589,8 +350,8 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_client_fetch_request() {
-        let client = RpcClient::new("http://localhost:3001/forums/rpc");
+    fn test_forum_rpc_client_fetch_request() {
+        let client = ForumRpcClient::new("http://localhost:3001/rpc");
         let hashes = vec![
             ContentHash::from_bytes([1u8; 64]),
             ContentHash::from_bytes([2u8; 64]),
@@ -604,8 +365,8 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_client_increments_id() {
-        let client = RpcClient::new("http://localhost:3001/forums/rpc");
+    fn test_forum_rpc_client_increments_id() {
+        let client = ForumRpcClient::new("http://localhost:3001/rpc");
 
         let r1 = client.build_list_request();
         let r2 = client.build_list_request();
@@ -618,12 +379,10 @@ mod tests {
 
     #[test]
     fn test_rpc_response_success() {
-        let response = RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: Some(serde_json::json!({"total_forums": 5, "total_nodes": 100})),
-            error: None,
-            id: Some(Value::Number(1.into())),
-        };
+        let response = RpcResponse::success(
+            1,
+            serde_json::json!({"total_forums": 5, "total_nodes": 100}),
+        );
 
         let stats: StatsResult = response.into_typed_result().unwrap();
         assert_eq!(stats.total_forums, 5);
@@ -632,16 +391,7 @@ mod tests {
 
     #[test]
     fn test_rpc_response_error() {
-        let response = RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError {
-                code: RpcError::FORUM_NOT_FOUND,
-                message: "Forum not found".to_string(),
-                data: None,
-            }),
-            id: Some(Value::Number(1.into())),
-        };
+        let response = RpcResponse::error(1, RpcError::not_found("Forum not found"));
 
         let result: Result<StatsResult> = response.into_typed_result();
         assert!(result.is_err());
@@ -668,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_export_params() {
-        let client = RpcClient::new("http://localhost:3001/forums/rpc");
+        let client = ForumRpcClient::new("http://localhost:3001/rpc");
         let forum_hash = ContentHash::from_bytes([1u8; 64]);
 
         let request = client.build_export_request(&forum_hash, Some(2), Some(100));

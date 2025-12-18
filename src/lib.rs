@@ -57,6 +57,7 @@ pub mod error;
 pub mod forum;
 pub mod keyring;
 pub mod packet;
+pub mod rpc;
 pub mod storage;
 pub mod validation;
 

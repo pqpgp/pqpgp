@@ -161,8 +161,11 @@ async fn forum_sync_task(persistence: SharedForumPersistence) {
         interval.as_secs()
     );
 
+    // Use interval timer that ticks immediately on first call
+    let mut interval_timer = tokio::time::interval(interval);
+
     loop {
-        tokio::time::sleep(interval).await;
+        interval_timer.tick().await;
 
         // Get list of locally-tracked forums
         let forums = match persistence.list_forums() {

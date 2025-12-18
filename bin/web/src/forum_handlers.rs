@@ -22,13 +22,14 @@ use pqpgp::cli::utils::create_keyring_manager;
 use pqpgp::crypto::Password;
 use pqpgp::forum::{
     permissions::ForumPermissions,
+    rpc_client::{FetchResult, ForumRpcClient, RpcRequest, RpcResponse, SyncResult},
     seal_private_message,
     types::current_timestamp_millis,
     validation::{validate_node, ValidationContext},
     BoardGenesis, ContentHash, ConversationManager, ConversationSession, DagNode, EditNode,
-    EncryptionIdentity, EncryptionIdentityGenerator, FetchNodesRequest, ForumGenesis,
-    ForumMetadata, InnerMessage, ModAction, ModActionNode, Post, PrivateMessageScanner,
-    SealedPrivateMessage, StoredMessage, SyncRequest, SyncResponse, ThreadRoot,
+    EncryptionIdentity, EncryptionIdentityGenerator, ForumGenesis, ForumMetadata, InnerMessage,
+    ModAction, ModActionNode, Post, PrivateMessageScanner, SealedPrivateMessage, StoredMessage,
+    ThreadRoot,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -72,6 +73,33 @@ const DEFAULT_RELAY_URL: &str = "http://127.0.0.1:3001";
 
 fn get_relay_url() -> String {
     std::env::var("PQPGP_RELAY_URL").unwrap_or_else(|_| DEFAULT_RELAY_URL.to_string())
+}
+
+/// Gets the RPC endpoint URL.
+fn get_rpc_endpoint() -> String {
+    format!("{}/rpc", get_relay_url())
+}
+
+/// Creates an RPC client for relay communication.
+fn create_rpc_client() -> ForumRpcClient {
+    ForumRpcClient::new(get_rpc_endpoint())
+}
+
+/// Sends an RPC request and parses the response.
+async fn send_rpc_request(
+    http_client: &Client,
+    rpc_client: &ForumRpcClient,
+    request: &RpcRequest,
+) -> Result<RpcResponse, String> {
+    http_client
+        .post(rpc_client.endpoint())
+        .json(request)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send RPC request: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse RPC response: {}", e))
 }
 
 /// Computes a fingerprint from identity bytes using the same algorithm as PublicKey::fingerprint().
@@ -215,37 +243,34 @@ async fn sync_forum_with_depth(
         return Ok(0);
     }
 
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
     // Step 1: Build sync request with known heads
     let known_heads = persistence
         .get_heads(forum_hash)
         .map_err(|e| e.to_string())?;
-    let sync_request = SyncRequest::with_heads(*forum_hash, known_heads.into_iter().collect());
+    let known_heads_vec: Vec<ContentHash> = known_heads.into_iter().collect();
 
     info!(
         "Syncing forum {}: sending {} known heads (depth {})",
         forum_hash.short(),
-        sync_request.known_heads.len(),
+        known_heads_vec.len(),
         depth
     );
 
-    // Step 2: Send sync request to relay
-    let sync_response: SyncResponse = client
-        .post(format!("{}/forums/sync", relay_url))
-        .json(&sync_request)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to send sync request: {}", e))?
-        .json()
-        .await
+    // Step 2: Send sync request to relay via JSON-RPC
+    let sync_request = rpc_client.build_sync_request(forum_hash, &known_heads_vec, None);
+    let sync_rpc_response = send_rpc_request(&http_client, &rpc_client, &sync_request).await?;
+    let sync_result: SyncResult = rpc_client
+        .parse_sync_response(sync_rpc_response)
         .map_err(|e| format!("Failed to parse sync response: {}", e))?;
 
     // Step 3: Filter out nodes we already have and deduplicate
+    let missing_hashes = sync_result.parse_missing_hashes();
     let mut nodes_to_fetch: Vec<ContentHash> = Vec::new();
     let mut seen: HashSet<ContentHash> = HashSet::new();
-    for hash in &sync_response.missing_hashes {
+    for hash in &missing_hashes {
         if !seen.contains(hash) && !persistence.node_exists(forum_hash, hash).unwrap_or(false) {
             nodes_to_fetch.push(*hash);
             seen.insert(*hash);
@@ -259,8 +284,8 @@ async fn sync_forum_with_depth(
             .load_forum_nodes(forum_hash)
             .map_err(|e| e.to_string())?;
         let local_hashes: HashSet<ContentHash> = local_nodes.iter().map(|n| *n.hash()).collect();
-        let verified_heads: HashSet<ContentHash> = sync_response
-            .server_heads
+        let server_heads = sync_result.parse_server_heads();
+        let verified_heads: HashSet<ContentHash> = server_heads
             .into_iter()
             .filter(|h| local_hashes.contains(h))
             .collect();
@@ -278,23 +303,18 @@ async fn sync_forum_with_depth(
         nodes_to_fetch.len()
     );
 
-    // Step 4: Fetch missing nodes
-    let fetch_request = FetchNodesRequest::new(nodes_to_fetch);
-    let fetch_response: pqpgp::forum::FetchNodesResponse = client
-        .post(format!("{}/forums/nodes/fetch", relay_url))
-        .json(&fetch_request)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to send fetch request: {}", e))?
-        .json()
-        .await
+    // Step 4: Fetch missing nodes via JSON-RPC
+    let fetch_request = rpc_client.build_fetch_request(&nodes_to_fetch);
+    let fetch_rpc_response = send_rpc_request(&http_client, &rpc_client, &fetch_request).await?;
+    let fetch_result: FetchResult = rpc_client
+        .parse_fetch_response(fetch_rpc_response)
         .map_err(|e| format!("Failed to parse fetch response: {}", e))?;
 
-    if !fetch_response.not_found.is_empty() {
+    if !fetch_result.not_found.is_empty() {
         warn!(
             "Forum {}: {} nodes not found on relay",
             forum_hash.short(),
-            fetch_response.not_found.len()
+            fetch_result.not_found.len()
         );
     }
 
@@ -306,16 +326,12 @@ async fn sync_forum_with_depth(
 
     // First, deserialize all nodes and deduplicate by hash
     let mut deserialized_map: HashMap<ContentHash, DagNode> = HashMap::new();
-    for serialized in &fetch_response.nodes {
-        match serialized.deserialize() {
-            Ok(node) => {
-                // Deduplicate: only keep first occurrence
-                deserialized_map.entry(*node.hash()).or_insert(node);
-            }
-            Err(e) => {
-                warn!("Failed to deserialize node: {}", e);
-            }
-        }
+    let fetched_nodes = fetch_result
+        .deserialize_nodes()
+        .map_err(|e| format!("Failed to deserialize nodes: {}", e))?;
+    for (hash, node) in fetched_nodes {
+        // Deduplicate: only keep first occurrence
+        deserialized_map.entry(hash).or_insert(node);
     }
 
     let mut deserialized_nodes: Vec<DagNode> = deserialized_map.into_values().collect();
@@ -435,8 +451,8 @@ async fn sync_forum_with_depth(
 
     // Step 6: Update local heads - ONLY with hashes that exist locally
     // Security: Don't blindly trust server_heads from relay
-    let verified_heads: HashSet<ContentHash> = sync_response
-        .server_heads
+    let verified_heads: HashSet<ContentHash> = sync_result
+        .parse_server_heads()
         .into_iter()
         .filter(|h| nodes_map.contains_key(h))
         .collect();
@@ -455,7 +471,7 @@ async fn sync_forum_with_depth(
     );
 
     // If there are more nodes, sync again with incremented depth
-    if sync_response.has_more {
+    if sync_result.has_more {
         info!(
             "Forum {}: more nodes available, continuing sync",
             forum_hash.short()
@@ -1637,8 +1653,8 @@ pub async fn post_reply_handler(
 
 /// Helper to get current DAG heads from the relay for causal ordering
 async fn get_dag_heads(forum_hash: &str) -> Vec<ContentHash> {
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
     let forum_content_hash = match ContentHash::from_hex(forum_hash) {
         Ok(h) => h,
@@ -1649,35 +1665,20 @@ async fn get_dag_heads(forum_hash: &str) -> Vec<ContentHash> {
     };
 
     // Use sync endpoint with empty known_heads to get server's current heads
-    let request = pqpgp::forum::SyncRequest::new(forum_content_hash);
+    let request = rpc_client.build_sync_request(&forum_content_hash, &[], None);
 
-    match client
-        .post(format!("{}/forums/sync", relay_url))
-        .json(&request)
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                match resp.json::<pqpgp::forum::SyncResponse>().await {
-                    Ok(sync_resp) => {
-                        info!(
-                            "Got {} DAG heads for forum {}",
-                            sync_resp.server_heads.len(),
-                            forum_hash
-                        );
-                        sync_resp.server_heads
-                    }
-                    Err(e) => {
-                        error!("Failed to parse sync response: {}", e);
-                        vec![]
-                    }
-                }
-            } else {
-                warn!("Sync request failed: {:?}", resp.status());
+    match send_rpc_request(&http_client, &rpc_client, &request).await {
+        Ok(rpc_response) => match rpc_client.parse_sync_response(rpc_response) {
+            Ok(sync_result) => {
+                let heads = sync_result.parse_server_heads();
+                info!("Got {} DAG heads for forum {}", heads.len(), forum_hash);
+                heads
+            }
+            Err(e) => {
+                error!("Failed to parse sync response: {}", e);
                 vec![]
             }
-        }
+        },
         Err(e) => {
             error!("Failed to fetch DAG heads: {}", e);
             vec![]
@@ -1757,10 +1758,10 @@ async fn submit_node(persistence: &SharedForumPersistence, forum_hash: &str, nod
     }
 
     // Step 3: Submit to relay (best effort - relay might be unavailable)
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
-    let request = match pqpgp::forum::SubmitNodeRequest::new(forum_content_hash, &node) {
+    let request = match rpc_client.build_submit_request(&forum_content_hash, &node) {
         Ok(r) => r,
         Err(e) => {
             error!("Failed to create submit request: {}", e);
@@ -1768,26 +1769,26 @@ async fn submit_node(persistence: &SharedForumPersistence, forum_hash: &str, nod
         }
     };
 
-    match client
-        .post(format!("{}/forums/nodes/submit", relay_url))
-        .json(&request)
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                info!(
-                    "Node {} submitted to relay successfully",
-                    node.hash().short()
-                );
-            } else {
+    match send_rpc_request(&http_client, &rpc_client, &request).await {
+        Ok(rpc_response) => match rpc_client.parse_submit_response(rpc_response) {
+            Ok(result) => {
+                if result.accepted {
+                    info!(
+                        "Node {} submitted to relay successfully",
+                        node.hash().short()
+                    );
+                } else {
+                    warn!("Node {} submission to relay rejected", node.hash().short());
+                }
+            }
+            Err(e) => {
                 warn!(
-                    "Node {} submission to relay failed: {:?}",
+                    "Node {} submission to relay failed: {}",
                     node.hash().short(),
-                    resp.status()
+                    e
                 );
             }
-        }
+        },
         Err(e) => {
             warn!(
                 "Failed to submit node {} to relay: {}",
@@ -3351,21 +3352,16 @@ pub async fn join_forum_handler(
         info!("Forum {} already synced, updating...", forum_hash.short());
     }
 
-    // Check if forum exists on the relay first
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    // Check if forum exists on the relay first by attempting a sync
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
-    match client
-        .get(format!("{}/forums/{}", relay_url, forum_hash_str))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            if resp.status() == StatusCode::NOT_FOUND {
-                warn!("Forum not found on relay: {}", forum_hash_str);
-                return Redirect::to("/forum").into_response();
-            } else if !resp.status().is_success() {
-                error!("Error checking forum: {:?}", resp.status());
+    let check_request = rpc_client.build_sync_request(&forum_hash, &[], Some(1));
+    match send_rpc_request(&http_client, &rpc_client, &check_request).await {
+        Ok(rpc_response) => {
+            if let Err(e) = rpc_client.parse_sync_response(rpc_response) {
+                // Forum not found or other error
+                warn!("Forum not found on relay: {} - {}", forum_hash_str, e);
                 return Redirect::to("/forum").into_response();
             }
         }
@@ -3749,11 +3745,11 @@ pub async fn create_encryption_identity_handler(
         .into_response();
     }
 
-    // Submit to relay
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    // Submit to relay via JSON-RPC
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
-    let request = match pqpgp::forum::SubmitNodeRequest::new(forum_hash, &node) {
+    let request = match rpc_client.build_submit_request(&forum_hash, &node) {
         Ok(r) => r,
         Err(e) => {
             error!("Failed to create submit request: {}", e);
@@ -3765,34 +3761,33 @@ pub async fn create_encryption_identity_handler(
         }
     };
 
-    match client
-        .post(format!("{}/forums/nodes/submit", relay_url))
-        .json(&request)
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => {
-            info!(
-                "Created encryption identity for forum {}",
-                forum_hash.short()
-            );
-            Redirect::to(&format!(
-                "/forum/{}/pm?result=identity_created",
-                forum_hash_str
-            ))
-            .into_response()
-        }
-        Ok(response) => {
-            warn!(
-                "Relay rejected encryption identity: {:?}",
-                response.status()
-            );
-            Redirect::to(&format!(
-                "/forum/{}/pm?error=relay_rejected",
-                forum_hash_str
-            ))
-            .into_response()
-        }
+    match send_rpc_request(&http_client, &rpc_client, &request).await {
+        Ok(rpc_response) => match rpc_client.parse_submit_response(rpc_response) {
+            Ok(result) if result.accepted => {
+                info!(
+                    "Created encryption identity for forum {}",
+                    forum_hash.short()
+                );
+                Redirect::to(&format!(
+                    "/forum/{}/pm?result=identity_created",
+                    forum_hash_str
+                ))
+                .into_response()
+            }
+            Ok(_) => {
+                warn!("Relay rejected encryption identity");
+                Redirect::to(&format!(
+                    "/forum/{}/pm?error=relay_rejected",
+                    forum_hash_str
+                ))
+                .into_response()
+            }
+            Err(e) => {
+                error!("Failed to parse submit response: {}", e);
+                Redirect::to(&format!("/forum/{}/pm?error=relay_error", forum_hash_str))
+                    .into_response()
+            }
+        },
         Err(e) => {
             error!("Failed to submit to relay: {}", e);
             Redirect::to(&format!("/forum/{}/pm?error=relay_error", forum_hash_str)).into_response()
@@ -3933,11 +3928,11 @@ pub async fn send_pm_handler(
         .into_response();
     }
 
-    // Submit to relay
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    // Submit to relay via JSON-RPC
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
-    let request = match pqpgp::forum::SubmitNodeRequest::new(forum_hash, &node) {
+    let request = match rpc_client.build_submit_request(&forum_hash, &node) {
         Ok(r) => r,
         Err(e) => {
             error!("Failed to create submit request: {}", e);
@@ -3949,80 +3944,82 @@ pub async fn send_pm_handler(
         }
     };
 
-    match client
-        .post(format!("{}/forums/nodes/submit", relay_url))
-        .json(&request)
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => {
-            info!("Sent private message in forum {}", forum_hash.short());
+    match send_rpc_request(&http_client, &rpc_client, &request).await {
+        Ok(rpc_response) => match rpc_client.parse_submit_response(rpc_response) {
+            Ok(result) if result.accepted => {
+                info!("Sent private message in forum {}", forum_hash.short());
 
-            // Create conversation session locally
-            let mut conversation_manager = app_state
-                .forum_persistence
-                .load_conversation_manager()
-                .unwrap_or_else(|_| ConversationManager::new());
+                // Create conversation session locally
+                let mut conversation_manager = app_state
+                    .forum_persistence
+                    .load_conversation_manager()
+                    .unwrap_or_else(|_| ConversationManager::new());
 
-            // Check if session already exists, if not create it
-            let conv_id_bytes = sealed_result.conversation_id;
-            if conversation_manager.get_session(&conv_id_bytes).is_none() {
-                // Get the recipient's signed prekey public key bytes for Double Ratchet initialization
-                let peer_ratchet_key = Some(
-                    recipient_identity
-                        .content
-                        .signed_prekey
-                        .public_key()
-                        .to_vec(),
-                );
-                let session = ConversationSession::new_initiator(
-                    conv_id_bytes,
-                    *sealed_result.conversation_key,
-                    our_identity_hash,
-                    recipient_hash,
-                    None, // OTP consumption tracked separately
-                    peer_ratchet_key,
-                );
-                if let Err(e) = conversation_manager.add_session(session) {
-                    warn!("Failed to add conversation session: {}", e);
+                // Check if session already exists, if not create it
+                let conv_id_bytes = sealed_result.conversation_id;
+                if conversation_manager.get_session(&conv_id_bytes).is_none() {
+                    // Get the recipient's signed prekey public key bytes for Double Ratchet initialization
+                    let peer_ratchet_key = Some(
+                        recipient_identity
+                            .content
+                            .signed_prekey
+                            .public_key()
+                            .to_vec(),
+                    );
+                    let session = ConversationSession::new_initiator(
+                        conv_id_bytes,
+                        *sealed_result.conversation_key,
+                        our_identity_hash,
+                        recipient_hash,
+                        None, // OTP consumption tracked separately
+                        peer_ratchet_key,
+                    );
+                    if let Err(e) = conversation_manager.add_session(session) {
+                        warn!("Failed to add conversation session: {}", e);
+                    }
                 }
-            }
 
-            // Record sent and store the message
-            if let Some(session) = conversation_manager.get_session_mut(&conv_id_bytes) {
-                session.record_sent();
-            }
+                // Record sent and store the message
+                if let Some(session) = conversation_manager.get_session_mut(&conv_id_bytes) {
+                    session.record_sent();
+                }
 
-            // Store the message in history
-            let stored_msg = StoredMessage {
-                inner: inner_for_storage,
-                dag_hash: *node.hash(),
-                is_outgoing: true,
-                processed_at: current_timestamp_millis(),
-            };
-            if let Err(e) = conversation_manager.store_message(&conv_id_bytes, stored_msg) {
-                warn!("Failed to store message in history: {}", e);
-            }
+                // Store the message in history
+                let stored_msg = StoredMessage {
+                    inner: inner_for_storage,
+                    dag_hash: *node.hash(),
+                    is_outgoing: true,
+                    processed_at: current_timestamp_millis(),
+                };
+                if let Err(e) = conversation_manager.store_message(&conv_id_bytes, stored_msg) {
+                    warn!("Failed to store message in history: {}", e);
+                }
 
-            // Save conversation manager
-            if let Err(e) = app_state
-                .forum_persistence
-                .store_conversation_manager(&conversation_manager)
-            {
-                warn!("Failed to save conversation manager: {}", e);
-            }
+                // Save conversation manager
+                if let Err(e) = app_state
+                    .forum_persistence
+                    .store_conversation_manager(&conversation_manager)
+                {
+                    warn!("Failed to save conversation manager: {}", e);
+                }
 
-            Redirect::to(&format!("/forum/{}/pm?result=message_sent", forum_hash_str))
+                Redirect::to(&format!("/forum/{}/pm?result=message_sent", forum_hash_str))
+                    .into_response()
+            }
+            Ok(_) => {
+                warn!("Relay rejected sealed message");
+                Redirect::to(&format!(
+                    "/forum/{}/pm?error=relay_rejected",
+                    forum_hash_str
+                ))
                 .into_response()
-        }
-        Ok(response) => {
-            warn!("Relay rejected sealed message: {:?}", response.status());
-            Redirect::to(&format!(
-                "/forum/{}/pm?error=relay_rejected",
-                forum_hash_str
-            ))
-            .into_response()
-        }
+            }
+            Err(e) => {
+                error!("Failed to parse submit response: {}", e);
+                Redirect::to(&format!("/forum/{}/pm?error=relay_error", forum_hash_str))
+                    .into_response()
+            }
+        },
         Err(e) => {
             error!("Failed to submit to relay: {}", e);
             Redirect::to(&format!("/forum/{}/pm?error=relay_error", forum_hash_str)).into_response()
@@ -4537,11 +4534,11 @@ pub async fn reply_pm_handler(
         .into_response();
     }
 
-    // Submit to relay
-    let client = Client::new();
-    let relay_url = get_relay_url();
+    // Submit to relay via JSON-RPC
+    let http_client = Client::new();
+    let rpc_client = create_rpc_client();
 
-    let request = match pqpgp::forum::SubmitNodeRequest::new(forum_hash, &node) {
+    let request = match rpc_client.build_submit_request(&forum_hash, &node) {
         Ok(r) => r,
         Err(e) => {
             error!("Failed to create submit request: {}", e);
@@ -4553,52 +4550,57 @@ pub async fn reply_pm_handler(
         }
     };
 
-    match client
-        .post(format!("{}/forums/nodes/submit", relay_url))
-        .json(&request)
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => {
-            // Store the reply in conversation history
-            let mut conversation_manager = app_state
-                .forum_persistence
-                .load_conversation_manager()
-                .unwrap_or_else(|_| ConversationManager::new());
+    match send_rpc_request(&http_client, &rpc_client, &request).await {
+        Ok(rpc_response) => match rpc_client.parse_submit_response(rpc_response) {
+            Ok(result) if result.accepted => {
+                // Store the reply in conversation history
+                let mut conversation_manager = app_state
+                    .forum_persistence
+                    .load_conversation_manager()
+                    .unwrap_or_else(|_| ConversationManager::new());
 
-            let stored_msg = StoredMessage {
-                inner: inner_for_storage,
-                dag_hash: *node.hash(),
-                is_outgoing: true,
-                processed_at: current_timestamp_millis(),
-            };
+                let stored_msg = StoredMessage {
+                    inner: inner_for_storage,
+                    dag_hash: *node.hash(),
+                    is_outgoing: true,
+                    processed_at: current_timestamp_millis(),
+                };
 
-            if let Err(e) = conversation_manager.store_message(&conversation_id, stored_msg) {
-                warn!("Failed to store reply in history: {}", e);
+                if let Err(e) = conversation_manager.store_message(&conversation_id, stored_msg) {
+                    warn!("Failed to store reply in history: {}", e);
+                }
+
+                // Save conversation manager
+                if let Err(e) = app_state
+                    .forum_persistence
+                    .store_conversation_manager(&conversation_manager)
+                {
+                    warn!("Failed to save conversation manager: {}", e);
+                }
+
+                Redirect::to(&format!(
+                    "/forum/{}/pm/conversation/{}?result=reply_sent",
+                    forum_hash_str, conversation_id_str
+                ))
+                .into_response()
             }
-
-            // Save conversation manager
-            if let Err(e) = app_state
-                .forum_persistence
-                .store_conversation_manager(&conversation_manager)
-            {
-                warn!("Failed to save conversation manager: {}", e);
+            Ok(_) => {
+                warn!("Relay rejected reply");
+                Redirect::to(&format!(
+                    "/forum/{}/pm/conversation/{}?error=relay_rejected",
+                    forum_hash_str, conversation_id_str
+                ))
+                .into_response()
             }
-
-            Redirect::to(&format!(
-                "/forum/{}/pm/conversation/{}?result=reply_sent",
-                forum_hash_str, conversation_id_str
-            ))
-            .into_response()
-        }
-        Ok(response) => {
-            warn!("Relay rejected reply: {:?}", response.status());
-            Redirect::to(&format!(
-                "/forum/{}/pm/conversation/{}?error=relay_rejected",
-                forum_hash_str, conversation_id_str
-            ))
-            .into_response()
-        }
+            Err(e) => {
+                error!("Failed to parse submit response: {}", e);
+                Redirect::to(&format!(
+                    "/forum/{}/pm/conversation/{}?error=relay_error",
+                    forum_hash_str, conversation_id_str
+                ))
+                .into_response()
+            }
+        },
         Err(e) => {
             error!("Failed to submit reply: {}", e);
             Redirect::to(&format!(
