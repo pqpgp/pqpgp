@@ -28,7 +28,7 @@ aes-gcm = "0.10.3"         # AES-GCM for symmetric encryption
 sha3 = "0.10.8"            # SHA3 for quantum-resistant hashing
 hkdf = "0.12.4"            # HMAC-based Key Derivation Function
 hmac = "0.12.1"            # HMAC for message authentication
-rand = "0.8.5"             # Cryptographically secure random number generation
+rand = "0.9.2"             # Cryptographically secure random number generation
 subtle = "2.5"             # Constant-time operations for security
 zeroize = { version = "1.8", features = ["derive"] } # Secure memory clearing
 
