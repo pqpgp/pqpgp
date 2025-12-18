@@ -21,6 +21,10 @@ use axum::{
 use pqpgp::cli::utils::create_keyring_manager;
 use pqpgp::crypto::Password;
 use pqpgp::forum::{
+    constants::{
+        MAX_DESCRIPTION_SIZE, MAX_HASH_INPUT_SIZE, MAX_NAME_SIZE, MAX_PASSWORD_SIZE,
+        MAX_POST_BODY_SIZE, MAX_TAGS_INPUT_SIZE, MAX_THREAD_BODY_SIZE, MAX_THREAD_TITLE_SIZE,
+    },
     permissions::ForumPermissions,
     rpc_client::{FetchResult, ForumRpcClient, RpcRequest, RpcResponse, SyncResult},
     seal_private_message,
@@ -39,30 +43,6 @@ use std::collections::{HashMap, HashSet};
 
 /// Maximum recursion depth for sync (prevents infinite loops from malicious relays).
 const MAX_SYNC_DEPTH: usize = 100;
-
-/// Maximum post body size (100KB) - matches library validation.
-const MAX_POST_BODY_SIZE: usize = 100 * 1024;
-
-/// Maximum thread title size (512 bytes) - matches library validation.
-const MAX_THREAD_TITLE_SIZE: usize = 512;
-
-/// Maximum thread body size (100KB) - matches library validation.
-const MAX_THREAD_BODY_SIZE: usize = 100 * 1024;
-
-/// Maximum forum/board name size (256 bytes) - matches library validation.
-const MAX_NAME_SIZE: usize = 256;
-
-/// Maximum forum/board description size (10KB) - matches library validation.
-const MAX_DESCRIPTION_SIZE: usize = 10 * 1024;
-
-/// Maximum fingerprint/hash input size (128 hex chars is more than enough for any hash).
-const MAX_HASH_INPUT_SIZE: usize = 128;
-
-/// Maximum password size (reasonable limit for password fields).
-const MAX_PASSWORD_SIZE: usize = 1024;
-
-/// Maximum tags input size (reasonable limit for comma-separated tags).
-const MAX_TAGS_SIZE: usize = 1024;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
@@ -1068,7 +1048,7 @@ pub async fn create_board_handler(
         );
         return Redirect::to(&format!("/forum/{}", forum_hash)).into_response();
     }
-    if data.tags.len() > MAX_TAGS_SIZE {
+    if data.tags.len() > MAX_TAGS_INPUT_SIZE {
         warn!("Tags input too large: {} bytes", data.tags.len());
         return Redirect::to(&format!("/forum/{}", forum_hash)).into_response();
     }

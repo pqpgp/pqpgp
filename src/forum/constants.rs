@@ -78,3 +78,39 @@ pub const MAX_QUEUED_MESSAGES: usize = 1000;
 
 /// Maximum message size in bytes (base64 encoded).
 pub const MAX_MESSAGE_SIZE: usize = 1024 * 1024; // 1MB
+
+// =============================================================================
+// Input Validation Limits (for web/CLI interfaces)
+// =============================================================================
+
+/// Maximum fingerprint/hash input size (128 hex chars covers any hash algorithm).
+pub const MAX_HASH_INPUT_SIZE: usize = 128;
+
+/// Maximum password input size.
+pub const MAX_PASSWORD_SIZE: usize = 1024;
+
+/// Maximum tags input size (comma-separated).
+pub const MAX_TAGS_INPUT_SIZE: usize = 1024;
+
+// =============================================================================
+// Display Constants
+// =============================================================================
+
+/// Number of hex characters to display for shortened fingerprints.
+/// 16 hex chars = 64 bits of entropy, enough to avoid collisions in practice.
+pub const FINGERPRINT_DISPLAY_LEN: usize = 16;
+
+/// Returns a shortened fingerprint for display/logging purposes.
+///
+/// # Example
+///
+/// ```
+/// use pqpgp::forum::constants::fingerprint_short;
+///
+/// let fp = "abcdef0123456789abcdef0123456789";
+/// assert_eq!(fingerprint_short(fp), "abcdef0123456789");
+/// ```
+#[inline]
+pub fn fingerprint_short(fingerprint: &str) -> &str {
+    &fingerprint[..FINGERPRINT_DISPLAY_LEN.min(fingerprint.len())]
+}
