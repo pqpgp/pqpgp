@@ -40,7 +40,7 @@ chrono = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Async utilities
 futures = "0.3"

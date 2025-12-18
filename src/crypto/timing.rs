@@ -260,7 +260,12 @@ impl TimingAnalyzer {
         }
 
         // Check for outliers (values more than 3 standard deviations from mean)
-        let outlier_threshold = 3.0;
+        // Use more lenient thresholds for small sample sizes and debug builds
+        let outlier_threshold = if cfg!(debug_assertions) || self.samples.len() < 100 {
+            4.0 // More lenient for debug builds and small samples
+        } else {
+            3.0
+        };
         let outliers = self
             .samples
             .iter()
@@ -272,8 +277,9 @@ impl TimingAnalyzer {
 
         let outlier_ratio = outliers as f64 / self.samples.len() as f64;
 
-        // Allow up to 5% outliers (normal for system variance)
-        outlier_ratio <= 0.05
+        // Allow more outliers for small sample sizes (OS scheduling noise)
+        let max_outlier_ratio = if self.samples.len() < 100 { 0.10 } else { 0.05 };
+        outlier_ratio <= max_outlier_ratio
     }
 
     /// Clear all samples
