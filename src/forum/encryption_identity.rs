@@ -30,6 +30,7 @@ use pqcrypto_mlkem::mlkem1024;
 use pqcrypto_traits::kem::{PublicKey as KemPublicKey, SecretKey as KemSecretKey};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use zeroize::Zeroize;
 
 /// Maximum number of one-time prekeys in a single encryption identity node.
 /// Users should publish new nodes as keys are consumed.
@@ -430,13 +431,16 @@ impl EncryptionIdentityPrivate {
     /// Removes a consumed one-time prekey.
     ///
     /// Call this after successfully processing an initial message that used this OTP.
+    /// The secret key material is securely zeroized before being dropped.
     pub fn consume_one_time_prekey(&mut self, id: PreKeyId) -> bool {
         if let Some(pos) = self
             .one_time_prekey_secrets
             .iter()
             .position(|(otp_id, _)| *otp_id == id)
         {
-            self.one_time_prekey_secrets.remove(pos);
+            // Securely zeroize the secret key before dropping
+            let (_, mut secret) = self.one_time_prekey_secrets.remove(pos);
+            secret.zeroize();
             true
         } else {
             false
