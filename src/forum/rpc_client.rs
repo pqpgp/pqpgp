@@ -30,7 +30,11 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 // JSON-RPC 2.0 Types
 // =============================================================================
 
-/// JSON-RPC 2.0 request.
+// =============================================================================
+// Client-side RPC Types (for building requests and parsing responses)
+// =============================================================================
+
+/// JSON-RPC 2.0 request (client-side, for building requests).
 #[derive(Debug, Clone, Serialize)]
 pub struct RpcRequest {
     /// Protocol version (always "2.0").
@@ -65,7 +69,7 @@ impl RpcRequest {
     }
 }
 
-/// JSON-RPC 2.0 response.
+/// JSON-RPC 2.0 response (client-side, for parsing responses).
 #[derive(Debug, Clone, Deserialize)]
 pub struct RpcResponse {
     /// Protocol version.
@@ -97,6 +101,61 @@ impl RpcResponse {
         let value = self.into_result()?;
         ::serde_json::from_value(value)
             .map_err(|e| PqpgpError::Serialization(format!("Failed to parse RPC result: {}", e)))
+    }
+}
+
+// =============================================================================
+// Server-side RPC Types (for receiving requests and building responses)
+// =============================================================================
+
+/// JSON-RPC 2.0 request (server-side, for receiving requests).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RpcServerRequest {
+    /// Protocol version.
+    pub jsonrpc: String,
+    /// Method name.
+    pub method: String,
+    /// Method parameters.
+    #[serde(default)]
+    pub params: Value,
+    /// Request ID.
+    pub id: Option<Value>,
+}
+
+/// JSON-RPC 2.0 response (server-side, for building responses).
+#[derive(Debug, Clone, Serialize)]
+pub struct RpcServerResponse {
+    /// Protocol version (always "2.0").
+    pub jsonrpc: &'static str,
+    /// Result (present on success).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    /// Error (present on failure).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<RpcError>,
+    /// Request ID.
+    pub id: Option<Value>,
+}
+
+impl RpcServerResponse {
+    /// Creates a success response.
+    pub fn success(id: Option<Value>, result: impl Serialize) -> Self {
+        Self {
+            jsonrpc: "2.0",
+            result: Some(::serde_json::to_value(result).unwrap_or(Value::Null)),
+            error: None,
+            id,
+        }
+    }
+
+    /// Creates an error response.
+    pub fn error(id: Option<Value>, error: RpcError) -> Self {
+        Self {
+            jsonrpc: "2.0",
+            result: None,
+            error: Some(error),
+            id,
+        }
     }
 }
 

@@ -32,7 +32,7 @@ use pqpgp::forum::dag_ops::{compute_missing, nodes_in_topological_order};
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::rpc_client::{
     ExportParams, ExportResult, FetchParams, FetchResult, ForumInfo, NodeData, RpcError,
-    SubmitParams, SubmitResult, SyncParams, SyncResult,
+    RpcServerRequest, RpcServerResponse, SubmitParams, SubmitResult, SyncParams, SyncResult,
 };
 use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{
@@ -103,48 +103,10 @@ pub struct AppState {
     pub forum: SharedForumState,
 }
 
-// =============================================================================
-// JSON-RPC 2.0 Types
-// =============================================================================
-
-#[derive(Debug, Deserialize)]
-pub struct RpcRequest {
-    pub jsonrpc: String,
-    pub method: String,
-    #[serde(default)]
-    pub params: Value,
-    pub id: Option<Value>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RpcResponse {
-    pub jsonrpc: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<RpcError>,
-    pub id: Option<Value>,
-}
-
-impl RpcResponse {
-    fn success(id: Option<Value>, result: Value) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: Some(result),
-            error: None,
-            id,
-        }
-    }
-
-    fn error(id: Option<Value>, error: RpcError) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            result: None,
-            error: Some(error),
-            id,
-        }
-    }
-}
+// Re-export RpcServerRequest and RpcServerResponse as the local names
+// to minimize changes in the handler code
+type RpcRequest = RpcServerRequest;
+type RpcResponse = RpcServerResponse;
 
 // =============================================================================
 // RwLock Helpers

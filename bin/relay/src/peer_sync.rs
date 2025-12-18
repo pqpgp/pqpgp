@@ -23,10 +23,12 @@
 
 use crate::rpc::SharedForumState;
 use base64::Engine;
+use pqpgp::forum::rpc_client::{
+    FetchParams, FetchResult, ForumInfo, RpcRequest, RpcResponse, SyncParams, SyncResult,
+};
 use pqpgp::forum::{ContentHash, DagNode};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashSet;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -103,101 +105,6 @@ impl PeerSyncConfig {
 }
 
 // =============================================================================
-// JSON-RPC 2.0 Types
-// =============================================================================
-
-/// JSON-RPC 2.0 request.
-#[derive(Debug, Serialize)]
-struct RpcRequest {
-    jsonrpc: &'static str,
-    method: &'static str,
-    params: Value,
-    id: u64,
-}
-
-impl RpcRequest {
-    fn new(method: &'static str, params: impl Serialize) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            method,
-            params: serde_json::to_value(params).unwrap_or(Value::Null),
-            id: 1,
-        }
-    }
-}
-
-/// JSON-RPC 2.0 response.
-#[derive(Debug, Deserialize)]
-struct RpcResponse {
-    #[allow(dead_code)]
-    jsonrpc: String,
-    result: Option<Value>,
-    error: Option<RpcErrorResponse>,
-    #[allow(dead_code)]
-    id: Option<Value>,
-}
-
-/// JSON-RPC 2.0 error object.
-#[derive(Debug, Deserialize)]
-struct RpcErrorResponse {
-    #[allow(dead_code)]
-    code: i32,
-    message: String,
-    #[allow(dead_code)]
-    data: Option<Value>,
-}
-
-// =============================================================================
-// RPC Request/Response Types
-// =============================================================================
-
-#[derive(Debug, Serialize)]
-struct SyncParams {
-    forum_hash: String,
-    known_heads: Vec<String>,
-    max_results: Option<usize>,
-}
-
-#[derive(Debug, Serialize)]
-struct FetchParams {
-    hashes: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ForumListResult {
-    hash: String,
-    #[allow(dead_code)]
-    name: String,
-    #[allow(dead_code)]
-    node_count: usize,
-    #[allow(dead_code)]
-    created_at: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct SyncResult {
-    #[allow(dead_code)]
-    forum_hash: String,
-    missing_hashes: Vec<String>,
-    #[allow(dead_code)]
-    server_heads: Vec<String>,
-    #[allow(dead_code)]
-    has_more: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct FetchResult {
-    nodes: Vec<NodeData>,
-    not_found: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NodeData {
-    hash: String,
-    data: String, // Base64-encoded
-}
-
-// =============================================================================
 // Peer Sync Client
 // =============================================================================
 
@@ -263,7 +170,7 @@ impl PeerSyncClient {
     }
 
     /// Fetches the list of forums from a peer relay.
-    async fn fetch_forum_list(&self, peer_url: &str) -> Result<Vec<ForumListResult>, String> {
+    async fn fetch_forum_list(&self, peer_url: &str) -> Result<Vec<ForumInfo>, String> {
         self.rpc_call(peer_url, "forum.list", serde_json::json!({}))
             .await
     }

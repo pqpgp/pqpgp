@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["dihmeetree"]
 description = "Post-Quantum secure implementation of PGP in Rust"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/dihmeetree/pqpgp"
+repository = "https://github.com/pqpgp/pqpgp"
 keywords = ["cryptography", "post-quantum", "pgp", "encryption", "security"]
 categories = ["cryptography", "command-line-utilities"]
 

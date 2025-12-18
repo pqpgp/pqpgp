@@ -40,14 +40,11 @@ use crate::forum::{
     BoardGenesis, ContentHash, DagNode, EditNode, ForumGenesis, ModAction, ModActionNode, Post,
     SealedPrivateMessage, ThreadRoot,
 };
-use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, MultiThreaded, Options,
-};
+use crate::storage::{composite_key, RocksDbConfig, RocksDbHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Default data directory name.
 const DEFAULT_DATA_DIR: &str = "pqpgp_forum_data";
@@ -91,16 +88,9 @@ pub struct ForumMetadata {
 }
 
 /// RocksDB-backed forum storage.
+#[derive(Debug)]
 pub struct ForumStorage {
-    db: Arc<DBWithThreadMode<MultiThreaded>>,
-}
-
-impl std::fmt::Debug for ForumStorage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ForumStorage")
-            .field("db", &"RocksDB")
-            .finish()
-    }
+    db: RocksDbHandle,
 }
 
 impl ForumStorage {
@@ -112,59 +102,18 @@ impl ForumStorage {
     /// Creates a new storage manager with a custom data directory.
     pub fn new(data_dir: impl AsRef<Path>) -> Result<Self> {
         let db_path = data_dir.as_ref().join(DB_DIR);
+        let config = RocksDbConfig::default();
+        let column_families = &[CF_NODES, CF_FORUMS, CF_HEADS, CF_META, CF_PRIVATE];
 
-        // Configure RocksDB options
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-        opts.set_max_open_files(128);
-        opts.set_keep_log_file_num(2);
-        opts.set_max_total_wal_size(32 * 1024 * 1024); // 32MB WAL
-        opts.increase_parallelism(num_cpus::get() as i32);
-
-        // Optimize for writes (LSM compaction)
-        opts.set_write_buffer_size(32 * 1024 * 1024); // 32MB write buffer
-        opts.set_max_write_buffer_number(2);
-        opts.set_target_file_size_base(32 * 1024 * 1024);
-
-        // Enable compression
-        opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-
-        // Column family options
-        let cf_opts = Options::default();
-
-        let cf_descriptors = vec![
-            ColumnFamilyDescriptor::new(CF_NODES, cf_opts.clone()),
-            ColumnFamilyDescriptor::new(CF_FORUMS, cf_opts.clone()),
-            ColumnFamilyDescriptor::new(CF_HEADS, cf_opts.clone()),
-            ColumnFamilyDescriptor::new(CF_META, cf_opts.clone()),
-            ColumnFamilyDescriptor::new(CF_PRIVATE, cf_opts),
-        ];
-
-        // Open database with column families
-        let db =
-            DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(&opts, &db_path, cf_descriptors)
-                .map_err(|e| PqpgpError::storage(format!("Failed to open RocksDB: {}", e)))?;
-
+        let db = RocksDbHandle::open(&db_path, &config, column_families)?;
         info!("Opened forum RocksDB at {:?}", db_path);
 
-        Ok(Self { db: Arc::new(db) })
-    }
-
-    /// Gets a column family handle.
-    fn cf(&self, name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
-        self.db
-            .cf_handle(name)
-            .ok_or_else(|| PqpgpError::storage(format!("Column family '{}' not found", name)))
+        Ok(Self { db })
     }
 
     /// Creates a composite key for node storage.
     fn node_key(forum_hash: &ContentHash, node_hash: &ContentHash) -> Vec<u8> {
-        let mut key = Vec::with_capacity(128);
-        key.extend_from_slice(forum_hash.as_bytes());
-        key.push(b':');
-        key.extend_from_slice(node_hash.as_bytes());
-        key
+        composite_key(forum_hash.as_bytes(), node_hash.as_bytes())
     }
 
     // ========================================================================
@@ -181,15 +130,9 @@ impl ForumStorage {
 
     /// Stores a node for a specific forum.
     pub fn store_node_for_forum(&self, forum_hash: &ContentHash, node: &DagNode) -> Result<()> {
-        let cf = self.cf(CF_NODES)?;
         let key = Self::node_key(forum_hash, node.hash());
         let value = node.to_bytes()?;
-
-        self.db
-            .put_cf(&cf, &key, &value)
-            .map_err(|e| PqpgpError::storage(format!("Failed to store node: {}", e)))?;
-
-        Ok(())
+        self.db.put_raw(CF_NODES, &key, &value)
     }
 
     /// Gets the forum hash from a node.
@@ -232,50 +175,36 @@ impl ForumStorage {
 
     /// Scans all nodes to find a board by hash.
     fn load_board_by_scan(&self, board_hash: &ContentHash) -> Result<Option<BoardGenesis>> {
-        let cf = self.cf(CF_NODES)?;
-        let iter = self.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
-
-        for item in iter {
-            match item {
-                Ok((_, value)) => {
-                    if let Ok(node) = DagNode::from_bytes(&value) {
-                        if let Some(board) = node.as_board_genesis() {
-                            if board.hash() == board_hash {
-                                return Ok(Some(board.clone()));
-                            }
-                        }
+        let mut result = None;
+        self.db.iterate_all(CF_NODES, |_, value| {
+            if let Ok(node) = DagNode::from_bytes(value) {
+                if let Some(board) = node.as_board_genesis() {
+                    if board.hash() == board_hash {
+                        result = Some(board.clone());
+                        return false; // Stop iteration
                     }
                 }
-                Err(e) => {
-                    warn!("Error during board scan: {}", e);
-                }
             }
-        }
-        Ok(None)
+            true // Continue
+        })?;
+        Ok(result)
     }
 
     /// Scans all nodes to find a thread by hash.
     fn load_thread_by_scan(&self, thread_hash: &ContentHash) -> Result<Option<ThreadRoot>> {
-        let cf = self.cf(CF_NODES)?;
-        let iter = self.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
-
-        for item in iter {
-            match item {
-                Ok((_, value)) => {
-                    if let Ok(node) = DagNode::from_bytes(&value) {
-                        if let Some(thread) = node.as_thread_root() {
-                            if thread.hash() == thread_hash {
-                                return Ok(Some(thread.clone()));
-                            }
-                        }
+        let mut result = None;
+        self.db.iterate_all(CF_NODES, |_, value| {
+            if let Ok(node) = DagNode::from_bytes(value) {
+                if let Some(thread) = node.as_thread_root() {
+                    if thread.hash() == thread_hash {
+                        result = Some(thread.clone());
+                        return false; // Stop iteration
                     }
                 }
-                Err(e) => {
-                    warn!("Error during thread scan: {}", e);
-                }
             }
-        }
-        Ok(None)
+            true // Continue
+        })?;
+        Ok(result)
     }
 
     /// Loads a node by its hash within a specific forum.
@@ -284,80 +213,39 @@ impl ForumStorage {
         forum_hash: &ContentHash,
         node_hash: &ContentHash,
     ) -> Result<Option<DagNode>> {
-        let cf = self.cf(CF_NODES)?;
         let key = Self::node_key(forum_hash, node_hash);
-
-        match self.db.get_cf(&cf, &key) {
-            Ok(Some(value)) => {
+        match self.db.get_raw(CF_NODES, &key)? {
+            Some(value) => {
                 let node = DagNode::from_bytes(&value)?;
                 Ok(Some(node))
             }
-            Ok(None) => Ok(None),
-            Err(e) => Err(PqpgpError::storage(format!("Failed to load node: {}", e))),
+            None => Ok(None),
         }
     }
 
     /// Checks if a node exists.
     pub fn node_exists(&self, forum_hash: &ContentHash, node_hash: &ContentHash) -> Result<bool> {
-        let cf = self.cf(CF_NODES)?;
         let key = Self::node_key(forum_hash, node_hash);
-
-        self.db
-            .get_cf(&cf, &key)
-            .map(|v| v.is_some())
-            .map_err(|e| PqpgpError::storage(format!("Failed to check node: {}", e)))
+        self.db.exists(CF_NODES, &key)
     }
 
     /// Loads all nodes for a forum.
     pub fn load_forum_nodes(&self, forum_hash: &ContentHash) -> Result<Vec<DagNode>> {
-        let cf = self.cf(CF_NODES)?;
-        let prefix = forum_hash.as_bytes();
-
-        let mut nodes = Vec::new();
-        let iter = self.db.prefix_iterator_cf(&cf, prefix);
-
-        for item in iter {
-            match item {
-                Ok((key, value)) => {
-                    // Verify key starts with our prefix (prefix iterator may return extra)
-                    if !key.starts_with(prefix) {
-                        break;
-                    }
-                    match DagNode::from_bytes(&value) {
-                        Ok(node) => nodes.push(node),
-                        Err(e) => {
-                            warn!("Failed to deserialize node: {}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Error iterating nodes: {}", e);
-                }
-            }
-        }
-
-        Ok(nodes)
+        self.db
+            .prefix_collect(CF_NODES, forum_hash.as_bytes(), |value| {
+                DagNode::from_bytes(value).map_err(|e| e.to_string())
+            })
     }
 
     /// Loads all nodes from all forums.
     pub fn load_all_nodes(&self) -> Result<HashMap<ContentHash, DagNode>> {
-        let cf = self.cf(CF_NODES)?;
-        let iter = self.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
-
         let mut nodes = HashMap::new();
-        for item in iter {
-            match item {
-                Ok((_, value)) => {
-                    if let Ok(node) = DagNode::from_bytes(&value) {
-                        nodes.insert(*node.hash(), node);
-                    }
-                }
-                Err(e) => {
-                    warn!("Error loading node: {}", e);
-                }
+        self.db.iterate_all(CF_NODES, |_, value| {
+            if let Ok(node) = DagNode::from_bytes(value) {
+                nodes.insert(*node.hash(), node);
             }
-        }
-
+            true
+        })?;
         Ok(nodes)
     }
 
@@ -371,38 +259,14 @@ impl ForumStorage {
         forum_hash: &ContentHash,
         metadata: &ForumMetadata,
     ) -> Result<()> {
-        let cf = self.cf(CF_FORUMS)?;
-        let value = bincode::serialize(metadata).map_err(|e| {
-            PqpgpError::serialization(format!("Failed to serialize metadata: {}", e))
-        })?;
-
-        self.db
-            .put_cf(&cf, forum_hash.as_bytes(), &value)
-            .map_err(|e| PqpgpError::storage(format!("Failed to store metadata: {}", e)))?;
-
-        // Add to forum list
+        self.db.put(CF_FORUMS, forum_hash.as_bytes(), metadata)?;
         self.add_forum_to_list(forum_hash)?;
-
         Ok(())
     }
 
     /// Loads forum metadata.
     pub fn load_forum_metadata(&self, forum_hash: &ContentHash) -> Result<Option<ForumMetadata>> {
-        let cf = self.cf(CF_FORUMS)?;
-
-        match self.db.get_cf(&cf, forum_hash.as_bytes()) {
-            Ok(Some(value)) => {
-                let metadata: ForumMetadata = bincode::deserialize(&value).map_err(|e| {
-                    PqpgpError::serialization(format!("Failed to deserialize metadata: {}", e))
-                })?;
-                Ok(Some(metadata))
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Err(PqpgpError::storage(format!(
-                "Failed to load metadata: {}",
-                e
-            ))),
-        }
+        self.db.get(CF_FORUMS, forum_hash.as_bytes())
     }
 
     /// Checks if a forum exists locally.
@@ -416,32 +280,14 @@ impl ForumStorage {
 
     /// Gets the current DAG heads for a forum.
     pub fn get_heads(&self, forum_hash: &ContentHash) -> Result<HashSet<ContentHash>> {
-        let cf = self.cf(CF_HEADS)?;
-
-        match self.db.get_cf(&cf, forum_hash.as_bytes()) {
-            Ok(Some(value)) => {
-                let heads: Vec<ContentHash> = bincode::deserialize(&value).map_err(|e| {
-                    PqpgpError::serialization(format!("Failed to deserialize heads: {}", e))
-                })?;
-                Ok(heads.into_iter().collect())
-            }
-            Ok(None) => Ok(HashSet::new()),
-            Err(e) => Err(PqpgpError::storage(format!("Failed to get heads: {}", e))),
-        }
+        let heads: Option<Vec<ContentHash>> = self.db.get(CF_HEADS, forum_hash.as_bytes())?;
+        Ok(heads.map(|v| v.into_iter().collect()).unwrap_or_default())
     }
 
     /// Sets the DAG heads for a forum.
     pub fn set_heads(&self, forum_hash: &ContentHash, heads: &HashSet<ContentHash>) -> Result<()> {
-        let cf = self.cf(CF_HEADS)?;
         let heads_vec: Vec<ContentHash> = heads.iter().copied().collect();
-        let value = bincode::serialize(&heads_vec)
-            .map_err(|e| PqpgpError::serialization(format!("Failed to serialize heads: {}", e)))?;
-
-        self.db
-            .put_cf(&cf, forum_hash.as_bytes(), &value)
-            .map_err(|e| PqpgpError::storage(format!("Failed to set heads: {}", e)))?;
-
-        Ok(())
+        self.db.put(CF_HEADS, forum_hash.as_bytes(), &heads_vec)
     }
 
     /// Updates heads after storing a new node.
@@ -465,88 +311,40 @@ impl ForumStorage {
 
     /// Lists all synced forum hashes.
     pub fn list_forums(&self) -> Result<Vec<ContentHash>> {
-        let cf = self.cf(CF_META)?;
-
-        match self.db.get_cf(&cf, META_FORUM_LIST) {
-            Ok(Some(value)) => {
-                let forums: Vec<ContentHash> = bincode::deserialize(&value).map_err(|e| {
-                    PqpgpError::serialization(format!("Failed to deserialize forum list: {}", e))
-                })?;
-                Ok(forums)
-            }
-            Ok(None) => Ok(Vec::new()),
-            Err(e) => Err(PqpgpError::storage(format!("Failed to list forums: {}", e))),
-        }
+        self.db
+            .get::<Vec<ContentHash>>(CF_META, META_FORUM_LIST)
+            .map(|opt| opt.unwrap_or_default())
     }
 
     /// Adds a forum to the list of synced forums.
     fn add_forum_to_list(&self, forum_hash: &ContentHash) -> Result<()> {
-        let cf = self.cf(CF_META)?;
         let mut forums = self.list_forums()?;
-
         if !forums.contains(forum_hash) {
             forums.push(*forum_hash);
-            let value = bincode::serialize(&forums).map_err(|e| {
-                PqpgpError::serialization(format!("Failed to serialize forum list: {}", e))
-            })?;
-
-            self.db
-                .put_cf(&cf, META_FORUM_LIST, &value)
-                .map_err(|e| PqpgpError::storage(format!("Failed to update forum list: {}", e)))?;
+            self.db.put(CF_META, META_FORUM_LIST, &forums)?;
         }
-
         Ok(())
     }
 
     /// Removes a forum and all its data.
     pub fn remove_forum(&self, forum_hash: &ContentHash) -> Result<()> {
         // Delete all nodes for this forum
-        let cf_nodes = self.cf(CF_NODES)?;
-        let prefix = forum_hash.as_bytes();
-        let iter = self.db.prefix_iterator_cf(&cf_nodes, prefix);
-
-        for item in iter {
-            match item {
-                Ok((key, _)) => {
-                    if !key.starts_with(prefix) {
-                        break;
-                    }
-                    self.db.delete_cf(&cf_nodes, &key).map_err(|e| {
-                        PqpgpError::storage(format!("Failed to delete node: {}", e))
-                    })?;
-                }
-                Err(e) => {
-                    warn!("Error during node deletion: {}", e);
-                }
-            }
-        }
+        self.db.prefix_delete(CF_NODES, forum_hash.as_bytes())?;
 
         // Delete forum metadata
-        let cf_forums = self.cf(CF_FORUMS)?;
-        self.db
-            .delete_cf(&cf_forums, forum_hash.as_bytes())
-            .map_err(|e| PqpgpError::storage(format!("Failed to delete forum metadata: {}", e)))?;
+        self.db.delete(CF_FORUMS, forum_hash.as_bytes())?;
 
         // Delete heads
-        let cf_heads = self.cf(CF_HEADS)?;
-        self.db
-            .delete_cf(&cf_heads, forum_hash.as_bytes())
-            .map_err(|e| PqpgpError::storage(format!("Failed to delete heads: {}", e)))?;
+        self.db.delete(CF_HEADS, forum_hash.as_bytes())?;
 
         // Remove from forum list
-        let cf_meta = self.cf(CF_META)?;
         let forums = self.list_forums()?;
         let filtered: Vec<_> = forums
             .iter()
             .filter(|h| *h != forum_hash)
             .copied()
             .collect();
-        let value = bincode::serialize(&filtered).map_err(|e| {
-            PqpgpError::serialization(format!("Failed to serialize forum list: {}", e))
-        })?;
-        self.db
-            .put_cf(&cf_meta, META_FORUM_LIST, &value)
-            .map_err(|e| PqpgpError::storage(format!("Failed to update forum list: {}", e)))?;
+        self.db.put(CF_META, META_FORUM_LIST, &filtered)?;
 
         info!("Removed forum {} from local storage", forum_hash.short());
         Ok(())
@@ -1027,19 +825,9 @@ impl ForumStorage {
         identity_hash: &ContentHash,
         private: &EncryptionIdentityPrivate,
     ) -> Result<()> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_ENCRYPTION_KEY_PREFIX.to_vec();
         key.extend_from_slice(identity_hash.as_bytes());
-
-        let value = bincode::serialize(private).map_err(|e| {
-            PqpgpError::serialization(format!("Failed to serialize encryption private: {}", e))
-        })?;
-
-        self.db.put_cf(&cf, &key, &value).map_err(|e| {
-            PqpgpError::storage(format!("Failed to store encryption private: {}", e))
-        })?;
-
-        Ok(())
+        self.db.put(CF_PRIVATE, &key, private)
     }
 
     /// Loads an encryption identity private key.
@@ -1047,87 +835,39 @@ impl ForumStorage {
         &self,
         identity_hash: &ContentHash,
     ) -> Result<Option<EncryptionIdentityPrivate>> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_ENCRYPTION_KEY_PREFIX.to_vec();
         key.extend_from_slice(identity_hash.as_bytes());
-
-        match self.db.get_cf(&cf, &key) {
-            Ok(Some(value)) => {
-                let private: EncryptionIdentityPrivate =
-                    bincode::deserialize(&value).map_err(|e| {
-                        PqpgpError::serialization(format!(
-                            "Failed to deserialize encryption private: {}",
-                            e
-                        ))
-                    })?;
-                Ok(Some(private))
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Err(PqpgpError::storage(format!(
-                "Failed to load encryption private: {}",
-                e
-            ))),
-        }
+        self.db.get(CF_PRIVATE, &key)
     }
 
     /// Deletes an encryption identity private key.
     pub fn delete_encryption_private(&self, identity_hash: &ContentHash) -> Result<()> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_ENCRYPTION_KEY_PREFIX.to_vec();
         key.extend_from_slice(identity_hash.as_bytes());
-
-        self.db.delete_cf(&cf, &key).map_err(|e| {
-            PqpgpError::storage(format!("Failed to delete encryption private: {}", e))
-        })?;
-
-        Ok(())
+        self.db.delete(CF_PRIVATE, &key)
     }
 
     /// Lists all encryption identity private keys stored locally.
     pub fn list_encryption_privates(&self) -> Result<Vec<ContentHash>> {
-        let cf = self.cf(CF_PRIVATE)?;
         let prefix = PRIVATE_ENCRYPTION_KEY_PREFIX;
-        let iter = self.db.prefix_iterator_cf(&cf, prefix);
-
         let mut hashes = Vec::new();
-        for item in iter {
-            match item {
-                Ok((key, _)) => {
-                    if !key.starts_with(prefix) {
-                        break;
-                    }
-                    // Extract hash from key (after prefix)
-                    let hash_bytes = &key[prefix.len()..];
-                    if hash_bytes.len() == 64 {
-                        let mut bytes = [0u8; 64];
-                        bytes.copy_from_slice(hash_bytes);
-                        hashes.push(ContentHash::from_bytes(bytes));
-                    }
-                }
-                Err(e) => {
-                    warn!("Error listing encryption privates: {}", e);
-                }
+        self.db.prefix_iterate(CF_PRIVATE, prefix, |key, _| {
+            let hash_bytes = &key[prefix.len()..];
+            if hash_bytes.len() == 64 {
+                let mut bytes = [0u8; 64];
+                bytes.copy_from_slice(hash_bytes);
+                hashes.push(ContentHash::from_bytes(bytes));
             }
-        }
-
+            true
+        })?;
         Ok(hashes)
     }
 
     /// Stores a conversation session.
     pub fn store_conversation(&self, session: &ConversationSession) -> Result<()> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_CONVERSATION_PREFIX.to_vec();
         key.extend_from_slice(session.conversation_id().as_bytes());
-
-        let value = bincode::serialize(session).map_err(|e| {
-            PqpgpError::serialization(format!("Failed to serialize conversation: {}", e))
-        })?;
-
-        self.db
-            .put_cf(&cf, &key, &value)
-            .map_err(|e| PqpgpError::storage(format!("Failed to store conversation: {}", e)))?;
-
-        Ok(())
+        self.db.put(CF_PRIVATE, &key, session)
     }
 
     /// Loads a conversation session.
@@ -1135,108 +875,54 @@ impl ForumStorage {
         &self,
         conversation_id: &[u8; CONVERSATION_ID_SIZE],
     ) -> Result<Option<ConversationSession>> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_CONVERSATION_PREFIX.to_vec();
         key.extend_from_slice(conversation_id);
-
-        match self.db.get_cf(&cf, &key) {
-            Ok(Some(value)) => {
-                let session: ConversationSession = bincode::deserialize(&value).map_err(|e| {
-                    PqpgpError::serialization(format!("Failed to deserialize conversation: {}", e))
-                })?;
-                Ok(Some(session))
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Err(PqpgpError::storage(format!(
-                "Failed to load conversation: {}",
-                e
-            ))),
-        }
+        self.db.get(CF_PRIVATE, &key)
     }
 
     /// Deletes a conversation session.
     pub fn delete_conversation(&self, conversation_id: &[u8; CONVERSATION_ID_SIZE]) -> Result<()> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_CONVERSATION_PREFIX.to_vec();
         key.extend_from_slice(conversation_id);
-
-        self.db
-            .delete_cf(&cf, &key)
-            .map_err(|e| PqpgpError::storage(format!("Failed to delete conversation: {}", e)))?;
-
-        Ok(())
+        self.db.delete(CF_PRIVATE, &key)
     }
 
     /// Stores the complete conversation manager state.
     pub fn store_conversation_manager(&self, manager: &ConversationManager) -> Result<()> {
-        let cf = self.cf(CF_PRIVATE)?;
-
-        let value = bincode::serialize(manager).map_err(|e| {
-            PqpgpError::serialization(format!("Failed to serialize conversation manager: {}", e))
-        })?;
-
         self.db
-            .put_cf(&cf, PRIVATE_CONVERSATION_MANAGER, &value)
-            .map_err(|e| {
-                PqpgpError::storage(format!("Failed to store conversation manager: {}", e))
-            })?;
-
-        Ok(())
+            .put(CF_PRIVATE, PRIVATE_CONVERSATION_MANAGER, manager)
     }
 
     /// Loads the complete conversation manager state.
     pub fn load_conversation_manager(&self) -> Result<ConversationManager> {
-        let cf = self.cf(CF_PRIVATE)?;
-
-        match self.db.get_cf(&cf, PRIVATE_CONVERSATION_MANAGER) {
-            Ok(Some(value)) => {
-                let mut manager: ConversationManager =
-                    bincode::deserialize(&value).map_err(|e| {
-                        PqpgpError::serialization(format!(
-                            "Failed to deserialize conversation manager: {}",
-                            e
-                        ))
-                    })?;
-
+        match self
+            .db
+            .get::<ConversationManager>(CF_PRIVATE, PRIVATE_CONVERSATION_MANAGER)?
+        {
+            Some(mut manager) => {
                 // Rebuild indexes after loading
                 manager.rebuild_indexes();
-
                 Ok(manager)
             }
-            Ok(None) => Ok(ConversationManager::new()),
-            Err(e) => Err(PqpgpError::storage(format!(
-                "Failed to load conversation manager: {}",
-                e
-            ))),
+            None => Ok(ConversationManager::new()),
         }
     }
 
     /// Lists all conversation IDs stored locally.
     pub fn list_conversations(&self) -> Result<Vec<[u8; CONVERSATION_ID_SIZE]>> {
-        let cf = self.cf(CF_PRIVATE)?;
         let prefix = PRIVATE_CONVERSATION_PREFIX;
-        let iter = self.db.prefix_iterator_cf(&cf, prefix);
-
         let mut ids = Vec::new();
-        for item in iter {
-            match item {
-                Ok((key, _)) => {
-                    if !key.starts_with(prefix) {
-                        break;
-                    }
-                    // Extract conversation ID from key (after prefix)
-                    let id_bytes = &key[prefix.len()..];
-                    if id_bytes.len() == CONVERSATION_ID_SIZE {
-                        let mut id = [0u8; CONVERSATION_ID_SIZE];
-                        id.copy_from_slice(id_bytes);
-                        ids.push(id);
-                    }
-                }
-                Err(e) => {
-                    warn!("Error listing conversations: {}", e);
-                }
+
+        self.db.prefix_iterate(CF_PRIVATE, prefix, |key, _| {
+            // Extract conversation ID from key (after prefix)
+            let id_bytes = &key[prefix.len()..];
+            if id_bytes.len() == CONVERSATION_ID_SIZE {
+                let mut id = [0u8; CONVERSATION_ID_SIZE];
+                id.copy_from_slice(id_bytes);
+                ids.push(id);
             }
-        }
+            true // Continue iteration
+        })?;
 
         Ok(ids)
     }
@@ -1246,67 +932,40 @@ impl ForumStorage {
     /// This is used to prevent replay attacks. A consumed OTP should never
     /// be accepted again.
     pub fn record_consumed_otp(&self, identity_hash: &ContentHash, otp_id: u32) -> Result<()> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_CONSUMED_OTP_PREFIX.to_vec();
         key.extend_from_slice(identity_hash.as_bytes());
         key.push(b':');
         key.extend_from_slice(&otp_id.to_le_bytes());
 
-        // Value is just a marker (empty or timestamp)
-        self.db
-            .put_cf(&cf, &key, [])
-            .map_err(|e| PqpgpError::storage(format!("Failed to record consumed OTP: {}", e)))?;
-
-        Ok(())
+        // Value is just a marker (empty bytes)
+        self.db.put_raw(CF_PRIVATE, &key, &[])
     }
 
     /// Checks if a one-time prekey has been consumed.
     pub fn is_otp_consumed(&self, identity_hash: &ContentHash, otp_id: u32) -> Result<bool> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut key = PRIVATE_CONSUMED_OTP_PREFIX.to_vec();
         key.extend_from_slice(identity_hash.as_bytes());
         key.push(b':');
         key.extend_from_slice(&otp_id.to_le_bytes());
-
-        self.db
-            .get_cf(&cf, &key)
-            .map(|v| v.is_some())
-            .map_err(|e| PqpgpError::storage(format!("Failed to check consumed OTP: {}", e)))
+        self.db.exists(CF_PRIVATE, &key)
     }
 
     /// Lists all consumed OTPs for an encryption identity.
     pub fn list_consumed_otps(&self, identity_hash: &ContentHash) -> Result<Vec<u32>> {
-        let cf = self.cf(CF_PRIVATE)?;
         let mut prefix = PRIVATE_CONSUMED_OTP_PREFIX.to_vec();
         prefix.extend_from_slice(identity_hash.as_bytes());
         prefix.push(b':');
 
-        let iter = self.db.prefix_iterator_cf(&cf, &prefix);
-
         let mut otps = Vec::new();
-        for item in iter {
-            match item {
-                Ok((key, _)) => {
-                    if !key.starts_with(&prefix) {
-                        break;
-                    }
-                    // Extract OTP ID from key (after prefix)
-                    let id_bytes = &key[prefix.len()..];
-                    if id_bytes.len() == 4 {
-                        let id = u32::from_le_bytes([
-                            id_bytes[0],
-                            id_bytes[1],
-                            id_bytes[2],
-                            id_bytes[3],
-                        ]);
-                        otps.push(id);
-                    }
-                }
-                Err(e) => {
-                    warn!("Error listing consumed OTPs: {}", e);
-                }
+        self.db.prefix_iterate(CF_PRIVATE, &prefix, |key, _| {
+            // Extract OTP ID from key (after prefix)
+            let id_bytes = &key[prefix.len()..];
+            if id_bytes.len() == 4 {
+                let id = u32::from_le_bytes([id_bytes[0], id_bytes[1], id_bytes[2], id_bytes[3]]);
+                otps.push(id);
             }
-        }
+            true // Continue iteration
+        })?;
 
         Ok(otps)
     }
@@ -1322,15 +981,16 @@ impl ForumStorage {
     ///
     /// Use with caution!
     pub fn clear(&self) -> Result<()> {
-        // Clear each column family
+        // Clear each column family by collecting keys first, then deleting
         for cf_name in [CF_NODES, CF_FORUMS, CF_HEADS, CF_META, CF_PRIVATE] {
-            let cf = self.cf(cf_name)?;
-            let iter = self.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
+            let mut keys_to_delete = Vec::new();
+            self.db.iterate_all(cf_name, |key, _| {
+                keys_to_delete.push(key.to_vec());
+                true
+            })?;
 
-            for (key, _) in iter.flatten() {
-                self.db.delete_cf(&cf, &key).map_err(|e| {
-                    PqpgpError::storage(format!("Failed to clear {}: {}", cf_name, e))
-                })?;
+            for key in keys_to_delete {
+                self.db.delete(cf_name, &key)?;
             }
         }
 

@@ -19,13 +19,10 @@ use super::state::{ForumRelayState, ForumState};
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{validate_node, ContentHash, DagNode, ForumGenesis, ValidationContext};
-use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, MultiThreaded, Options,
-};
+use pqpgp::storage::{composite_key, RocksDbConfig, RocksDbHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use tracing::{error, info, warn};
 
 /// Default data directory name.
@@ -53,7 +50,7 @@ struct ForumMetadata {
 
 /// RocksDB-backed forum persistence.
 pub struct ForumPersistence {
-    db: Arc<DBWithThreadMode<MultiThreaded>>,
+    db: RocksDbHandle,
 }
 
 impl ForumPersistence {
@@ -65,62 +62,20 @@ impl ForumPersistence {
     /// Creates a new persistence manager with a custom data directory.
     pub fn with_data_dir(data_dir: impl AsRef<Path>) -> Result<Self, String> {
         let db_path = data_dir.as_ref().join(DB_DIR);
+        let config = RocksDbConfig::for_server();
+        let column_families = &[CF_NODES, CF_FORUMS, CF_META];
 
-        // Configure RocksDB options
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-        opts.set_max_open_files(256);
-        opts.set_keep_log_file_num(3);
-        opts.set_max_total_wal_size(64 * 1024 * 1024); // 64MB WAL
-        opts.increase_parallelism(num_cpus::get() as i32);
+        let db = RocksDbHandle::open(&db_path, &config, column_families)
+            .map_err(|e| format!("Failed to open RocksDB: {}", e))?;
 
-        // Optimize for writes (LSM compaction)
-        opts.set_write_buffer_size(64 * 1024 * 1024); // 64MB write buffer
-        opts.set_max_write_buffer_number(3);
-        opts.set_target_file_size_base(64 * 1024 * 1024);
+        info!("Opened relay RocksDB at {:?}", db_path);
 
-        // Enable compression
-        opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-
-        // Column family options
-        let cf_opts = Options::default();
-
-        let cf_descriptors = vec![
-            ColumnFamilyDescriptor::new(CF_NODES, cf_opts.clone()),
-            ColumnFamilyDescriptor::new(CF_FORUMS, cf_opts.clone()),
-            ColumnFamilyDescriptor::new(CF_META, cf_opts),
-        ];
-
-        // Open database with column families
-        let db =
-            DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(&opts, &db_path, cf_descriptors)
-                .map_err(|e| format!("Failed to open RocksDB: {}", e))?;
-
-        info!("Opened RocksDB at {:?}", db_path);
-
-        Ok(Self { db: Arc::new(db) })
-    }
-
-    /// Returns a reference to a column family.
-    ///
-    /// Returns an error if the column family doesn't exist (database corruption).
-    fn cf(&self, name: &str) -> Result<Arc<BoundColumnFamily<'_>>, String> {
-        self.db.cf_handle(name).ok_or_else(|| {
-            format!(
-                "Column family '{}' not found - database may be corrupted",
-                name
-            )
-        })
+        Ok(Self { db })
     }
 
     /// Creates a composite key for a node: `{forum_hash}:{node_hash}`.
     fn node_key(forum_hash: &ContentHash, node_hash: &ContentHash) -> Vec<u8> {
-        let mut key = Vec::with_capacity(129); // 64 + 1 + 64
-        key.extend_from_slice(forum_hash.as_bytes());
-        key.push(b':');
-        key.extend_from_slice(node_hash.as_bytes());
-        key
+        composite_key(forum_hash.as_bytes(), node_hash.as_bytes())
     }
 
     /// Saves a node to the database.
@@ -130,12 +85,9 @@ impl ForumPersistence {
             .to_bytes()
             .map_err(|e| format!("Failed to serialize node: {}", e))?;
 
-        let cf = self.cf(CF_NODES)?;
         self.db
-            .put_cf(&cf, &key, &value)
-            .map_err(|e| format!("Failed to write node: {}", e))?;
-
-        Ok(())
+            .put_raw(CF_NODES, &key, &value)
+            .map_err(|e| format!("Failed to write node: {}", e))
     }
 
     /// Saves forum metadata.
@@ -144,15 +96,9 @@ impl ForumPersistence {
         forum_hash: &ContentHash,
         metadata: &ForumMetadata,
     ) -> Result<(), String> {
-        let value = bincode::serialize(metadata)
-            .map_err(|e| format!("Failed to serialize forum metadata: {}", e))?;
-
-        let cf = self.cf(CF_FORUMS)?;
         self.db
-            .put_cf(&cf, forum_hash.as_bytes(), &value)
-            .map_err(|e| format!("Failed to write forum metadata: {}", e))?;
-
-        Ok(())
+            .put(CF_FORUMS, forum_hash.as_bytes(), metadata)
+            .map_err(|e| format!("Failed to write forum metadata: {}", e))
     }
 
     /// Adds a forum hash to the forum list.
@@ -162,12 +108,8 @@ impl ForumPersistence {
         if !forum_list.contains(forum_hash) {
             forum_list.push(*forum_hash);
 
-            let value = bincode::serialize(&forum_list)
-                .map_err(|e| format!("Failed to serialize forum list: {}", e))?;
-
-            let cf = self.cf(CF_META)?;
             self.db
-                .put_cf(&cf, META_FORUM_LIST, &value)
+                .put(CF_META, META_FORUM_LIST, &forum_list)
                 .map_err(|e| format!("Failed to write forum list: {}", e))?;
         }
 
@@ -176,13 +118,10 @@ impl ForumPersistence {
 
     /// Loads the list of forum hashes.
     fn load_forum_list(&self) -> Result<Vec<ContentHash>, String> {
-        let cf = self.cf(CF_META)?;
-        match self.db.get_cf(&cf, META_FORUM_LIST) {
-            Ok(Some(data)) => bincode::deserialize(&data)
-                .map_err(|e| format!("Failed to deserialize forum list: {}", e)),
-            Ok(None) => Ok(Vec::new()),
-            Err(e) => Err(format!("Failed to read forum list: {}", e)),
-        }
+        self.db
+            .get::<Vec<ContentHash>>(CF_META, META_FORUM_LIST)
+            .map(|opt| opt.unwrap_or_default())
+            .map_err(|e| format!("Failed to read forum list: {}", e))
     }
 
     /// Loads forum metadata.
@@ -191,44 +130,18 @@ impl ForumPersistence {
         &self,
         forum_hash: &ContentHash,
     ) -> Result<Option<ForumMetadata>, String> {
-        let cf = self.cf(CF_FORUMS)?;
-        match self.db.get_cf(&cf, forum_hash.as_bytes()) {
-            Ok(Some(data)) => {
-                let metadata: ForumMetadata = bincode::deserialize(&data)
-                    .map_err(|e| format!("Failed to deserialize forum metadata: {}", e))?;
-                Ok(Some(metadata))
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Err(format!("Failed to read forum metadata: {}", e)),
-        }
+        self.db
+            .get(CF_FORUMS, forum_hash.as_bytes())
+            .map_err(|e| format!("Failed to read forum metadata: {}", e))
     }
 
     /// Loads all nodes for a forum.
     fn load_forum_nodes(&self, forum_hash: &ContentHash) -> Result<Vec<DagNode>, String> {
-        let prefix = forum_hash.as_bytes();
-        let mut nodes = Vec::new();
-
-        // Use prefix iterator to efficiently scan all nodes for this forum
-        let cf = self.cf(CF_NODES)?;
-        let iter = self.db.prefix_iterator_cf(&cf, prefix);
-
-        for item in iter {
-            let (key, value) = item.map_err(|e| format!("Iterator error: {}", e))?;
-
-            // Verify the key still has our prefix (prefix_iterator may overshoot)
-            if !key.starts_with(prefix) {
-                break;
-            }
-
-            match DagNode::from_bytes(&value) {
-                Ok(node) => nodes.push(node),
-                Err(e) => {
-                    warn!("Failed to deserialize node: {}", e);
-                }
-            }
-        }
-
-        Ok(nodes)
+        self.db
+            .prefix_collect(CF_NODES, forum_hash.as_bytes(), |value| {
+                DagNode::from_bytes(value).map_err(|e| e.to_string())
+            })
+            .map_err(|e| format!("Failed to load forum nodes: {}", e))
     }
 
     /// Creates a new forum with its genesis node.
@@ -416,53 +329,26 @@ impl ForumPersistence {
     #[allow(dead_code)]
     pub fn delete_forum(&self, forum_hash: &ContentHash) -> Result<(), String> {
         // Delete all nodes for this forum
-        let prefix = forum_hash.as_bytes();
-        let cf_nodes = self.cf(CF_NODES)?;
-        let iter = self.db.prefix_iterator_cf(&cf_nodes, prefix);
-
-        for item in iter {
-            let (key, _) = item.map_err(|e| format!("Iterator error: {}", e))?;
-
-            if !key.starts_with(prefix) {
-                break;
-            }
-
-            self.db
-                .delete_cf(&cf_nodes, &key)
-                .map_err(|e| format!("Failed to delete node: {}", e))?;
-        }
+        self.db
+            .prefix_delete(CF_NODES, forum_hash.as_bytes())
+            .map_err(|e| format!("Failed to delete forum nodes: {}", e))?;
 
         // Delete forum metadata
-        let cf_forums = self.cf(CF_FORUMS)?;
         self.db
-            .delete_cf(&cf_forums, forum_hash.as_bytes())
+            .delete(CF_FORUMS, forum_hash.as_bytes())
             .map_err(|e| format!("Failed to delete forum metadata: {}", e))?;
 
         // Remove from forum list
         let mut forum_list = self.load_forum_list()?;
         forum_list.retain(|h| h != forum_hash);
 
-        let value = bincode::serialize(&forum_list)
-            .map_err(|e| format!("Failed to serialize forum list: {}", e))?;
-
-        let cf_meta = self.cf(CF_META)?;
         self.db
-            .put_cf(&cf_meta, META_FORUM_LIST, &value)
+            .put(CF_META, META_FORUM_LIST, &forum_list)
             .map_err(|e| format!("Failed to write forum list: {}", e))?;
 
         info!("Deleted forum {}", forum_hash.short());
 
         Ok(())
-    }
-
-    /// Returns database statistics.
-    #[allow(dead_code)]
-    pub fn stats(&self) -> String {
-        self.db
-            .property_value("rocksdb.stats")
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "Stats unavailable".to_string())
     }
 }
 

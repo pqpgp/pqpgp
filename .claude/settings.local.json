@@ -20,7 +20,8 @@
       "Bash(RUST_BACKTRACE=1 cargo test:*)",
       "Bash(grep:*)",
       "Bash(xargs:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git remote set-url:*)"
     ]
   }
 }
