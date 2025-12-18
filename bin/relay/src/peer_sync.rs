@@ -257,7 +257,12 @@ impl PeerSyncClient {
         for chunk in missing_hashes.chunks(self.config.batch_size) {
             let fetch_resp = self.fetch_nodes(peer_url, chunk).await?;
 
-            // Process fetched nodes
+            // First pass: validate and deserialize all nodes outside the lock
+            // This prevents holding the lock during expensive operations and ensures
+            // atomic batch commits for consistency
+            let mut validated_nodes: Vec<DagNode> = Vec::with_capacity(fetch_resp.nodes.len());
+            let mut batch_rejected = 0usize;
+
             for node_data in &fetch_resp.nodes {
                 let hash = match ContentHash::from_hex(&node_data.hash) {
                     Ok(h) => h,
@@ -266,7 +271,7 @@ impl PeerSyncClient {
                             "Invalid hash in response from {}: {}",
                             peer_url, node_data.hash
                         );
-                        stats.rejected += 1;
+                        batch_rejected += 1;
                         continue;
                     }
                 };
@@ -281,7 +286,7 @@ impl PeerSyncClient {
                             peer_url,
                             e
                         );
-                        stats.rejected += 1;
+                        batch_rejected += 1;
                         continue;
                     }
                 };
@@ -296,24 +301,10 @@ impl PeerSyncClient {
                                 hash.short(),
                                 node.hash().short()
                             );
-                            stats.rejected += 1;
+                            batch_rejected += 1;
                             continue;
                         }
-
-                        // Try to add the node (validation happens inside)
-                        let mut relay = state.write().unwrap();
-                        match relay.add_node(&forum_hash, node) {
-                            Ok(true) => {
-                                stats.added += 1;
-                            }
-                            Ok(false) => {
-                                stats.duplicates += 1;
-                            }
-                            Err(e) => {
-                                debug!("Failed to add node {}: {}", hash.short(), e);
-                                stats.rejected += 1;
-                            }
-                        }
+                        validated_nodes.push(node);
                     }
                     Err(e) => {
                         warn!(
@@ -322,7 +313,31 @@ impl PeerSyncClient {
                             peer_url,
                             e
                         );
-                        stats.rejected += 1;
+                        batch_rejected += 1;
+                    }
+                }
+            }
+
+            stats.rejected += batch_rejected;
+
+            // Second pass: add all validated nodes atomically under a single lock
+            // This ensures clients see a consistent state - either all batch nodes
+            // are present or none are (prevents orphan references during sync)
+            if !validated_nodes.is_empty() {
+                let mut relay = state.write().unwrap();
+                for node in validated_nodes {
+                    let hash = *node.hash();
+                    match relay.add_node(&forum_hash, node) {
+                        Ok(true) => {
+                            stats.added += 1;
+                        }
+                        Ok(false) => {
+                            stats.duplicates += 1;
+                        }
+                        Err(e) => {
+                            debug!("Failed to add node {}: {}", hash.short(), e);
+                            stats.rejected += 1;
+                        }
                     }
                 }
             }

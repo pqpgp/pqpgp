@@ -120,6 +120,83 @@ impl ForumState {
             self.permissions = builder.into_permissions().remove(&hash);
         }
     }
+
+    /// Returns the effective board hash for a thread, considering any moves.
+    ///
+    /// If the thread has been moved via a `MoveThread` moderation action, this returns
+    /// the destination board. Otherwise, returns the original board from the thread's
+    /// `board_hash` field.
+    ///
+    /// # Arguments
+    /// * `thread_hash` - The content hash of the thread root
+    ///
+    /// # Returns
+    /// * `Some(board_hash)` - The effective board hash (moved destination or original)
+    /// * `None` - If the thread doesn't exist in this forum
+    pub fn get_effective_board_for_thread(&self, thread_hash: &ContentHash) -> Option<ContentHash> {
+        // First check if the thread has been moved
+        if let Some(perms) = &self.permissions {
+            if let Some(moved_board) = perms.get_thread_current_board(thread_hash) {
+                return Some(*moved_board);
+            }
+        }
+
+        // Not moved - get the original board from the thread root
+        if let Some(node) = self.nodes.get(thread_hash) {
+            if let Some(thread) = node.as_thread_root() {
+                return Some(*thread.board_hash());
+            }
+        }
+
+        None
+    }
+
+    /// Returns the effective board hash for a post, considering thread moves.
+    ///
+    /// This follows the post -> thread -> board chain, and accounts for any
+    /// `MoveThread` moderation actions that may have relocated the thread.
+    ///
+    /// # Arguments
+    /// * `post_hash` - The content hash of the post
+    ///
+    /// # Returns
+    /// * `Some(board_hash)` - The effective board hash for the post's thread
+    /// * `None` - If the post or its thread doesn't exist in this forum
+    pub fn get_effective_board_for_post(&self, post_hash: &ContentHash) -> Option<ContentHash> {
+        // Get the post's thread hash
+        let thread_hash = self
+            .nodes
+            .get(post_hash)
+            .and_then(|node| node.as_post().map(|post| *post.thread_hash()))?;
+
+        // Delegate to thread lookup
+        self.get_effective_board_for_thread(&thread_hash)
+    }
+
+    /// Returns the effective board hash for any node type.
+    ///
+    /// This is a convenience method that handles posts, threads, and boards uniformly:
+    /// - For posts: returns the effective board via the thread (considering moves)
+    /// - For threads: returns the effective board (considering moves)
+    /// - For boards: returns the board's own hash
+    /// - For other node types: returns None
+    ///
+    /// # Arguments
+    /// * `node_hash` - The content hash of the node
+    ///
+    /// # Returns
+    /// * `Some(board_hash)` - The effective board hash
+    /// * `None` - If the node doesn't exist or is not a post/thread/board
+    pub fn get_effective_board(&self, node_hash: &ContentHash) -> Option<ContentHash> {
+        let node = self.nodes.get(node_hash)?;
+
+        match node.node_type() {
+            NodeType::Post => self.get_effective_board_for_post(node_hash),
+            NodeType::ThreadRoot => self.get_effective_board_for_thread(node_hash),
+            NodeType::BoardGenesis => Some(*node_hash),
+            _ => None,
+        }
+    }
 }
 
 /// Container for multiple forums' in-memory state.
@@ -397,5 +474,257 @@ mod tests {
         assert!(relay.remove_forum(&hash));
         assert_eq!(relay.forum_count(), 0);
         assert!(!relay.remove_forum(&hash)); // Already removed
+    }
+
+    #[test]
+    fn test_get_effective_board_for_thread() {
+        use crate::forum::ThreadRoot;
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create a board
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        // Create a thread in that board
+        let thread = ThreadRoot::create(
+            *board.hash(),
+            "Test Thread".to_string(),
+            "Thread body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        // Effective board should be the original board
+        let effective = state.get_effective_board_for_thread(thread.hash());
+        assert_eq!(effective, Some(*board.hash()));
+
+        // Non-existent thread should return None
+        let fake_hash = ContentHash::from_bytes([0u8; 64]);
+        assert!(state.get_effective_board_for_thread(&fake_hash).is_none());
+    }
+
+    #[test]
+    fn test_get_effective_board_for_post() {
+        use crate::forum::{Post, ThreadRoot};
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create a board
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        // Create a thread in that board
+        let thread = ThreadRoot::create(
+            *board.hash(),
+            "Test Thread".to_string(),
+            "Thread body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        // Create a post in that thread
+        let post = Post::create(
+            *thread.hash(),
+            vec![*thread.hash()],
+            "Test post".to_string(),
+            None,
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(post.clone()));
+
+        // Effective board for the post should be the original board
+        let effective = state.get_effective_board_for_post(post.hash());
+        assert_eq!(effective, Some(*board.hash()));
+    }
+
+    #[test]
+    fn test_get_effective_board_generic() {
+        use crate::forum::{Post, ThreadRoot};
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create a board
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        // Create a thread
+        let thread = ThreadRoot::create(
+            *board.hash(),
+            "Test Thread".to_string(),
+            "Thread body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        // Create a post
+        let post = Post::create(
+            *thread.hash(),
+            vec![*thread.hash()],
+            "Test post".to_string(),
+            None,
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(post.clone()));
+
+        // Test get_effective_board for each node type
+        assert_eq!(state.get_effective_board(board.hash()), Some(*board.hash()));
+        assert_eq!(
+            state.get_effective_board(thread.hash()),
+            Some(*board.hash())
+        );
+        assert_eq!(state.get_effective_board(post.hash()), Some(*board.hash()));
+
+        // Forum genesis should return None (not a board/thread/post)
+        assert!(state.get_effective_board(genesis.hash()).is_none());
+    }
+
+    #[test]
+    fn test_get_effective_board_with_moved_thread() {
+        use crate::forum::{ModActionNode, Post, ThreadRoot};
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create two boards
+        let board1 = BoardGenesis::create(
+            *genesis.hash(),
+            "Board 1".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board1.clone()));
+
+        let board2 = BoardGenesis::create(
+            *genesis.hash(),
+            "Board 2".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board2.clone()));
+
+        // Create a thread in board1
+        let thread = ThreadRoot::create(
+            *board1.hash(),
+            "Test Thread".to_string(),
+            "Thread body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        // Create a post in that thread
+        let post = Post::create(
+            *thread.hash(),
+            vec![*thread.hash()],
+            "Test post".to_string(),
+            None,
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(post.clone()));
+
+        // Initially, effective board is board1
+        assert_eq!(
+            state.get_effective_board_for_thread(thread.hash()),
+            Some(*board1.hash())
+        );
+        assert_eq!(
+            state.get_effective_board_for_post(post.hash()),
+            Some(*board1.hash())
+        );
+
+        // Move the thread to board2
+        let move_action = ModActionNode::create_move_thread_action(
+            *genesis.hash(),
+            *thread.hash(),
+            *board2.hash(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+            vec![*post.hash()],
+        )
+        .unwrap();
+        state.add_node(DagNode::from(move_action));
+
+        // After move, effective board should be board2
+        assert_eq!(
+            state.get_effective_board_for_thread(thread.hash()),
+            Some(*board2.hash())
+        );
+        assert_eq!(
+            state.get_effective_board_for_post(post.hash()),
+            Some(*board2.hash())
+        );
+        assert_eq!(
+            state.get_effective_board(thread.hash()),
+            Some(*board2.hash())
+        );
+        assert_eq!(state.get_effective_board(post.hash()), Some(*board2.hash()));
     }
 }
