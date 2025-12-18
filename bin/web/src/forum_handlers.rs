@@ -109,24 +109,27 @@ fn get_effective_forum_info(
 /// Gets effective board name/description after applying edits.
 ///
 /// Uses the pre-loaded board to avoid redundant disk reads.
-fn get_effective_board_info(
-    persistence: &SharedForumPersistence,
-    forum_hash: &ContentHash,
-    board: &BoardGenesis,
-) -> (String, String) {
-    persistence
-        .apply_board_edits(forum_hash, board)
-        .unwrap_or_else(|_| Some((board.name().to_string(), board.description().to_string())))
-        .unwrap_or_else(|| (board.name().to_string(), board.description().to_string()))
+/// Builds a BoardDisplayInfo from a BoardSummary (already has edits applied).
+fn build_board_display_info_from_summary(summary: &pqpgp::forum::BoardSummary) -> BoardDisplayInfo {
+    BoardDisplayInfo {
+        hash: summary.board.hash().to_hex(),
+        name: summary.effective_name.clone(),
+        description: summary.effective_description.clone(),
+        tags: summary.board.tags().to_vec(),
+        created_at_display: format_timestamp(summary.board.created_at()),
+    }
 }
 
-/// Builds a BoardDisplayInfo with edits applied.
+/// Builds a BoardDisplayInfo with edits applied (for single board lookups).
 fn build_board_display_info(
     persistence: &SharedForumPersistence,
     forum_hash: &ContentHash,
     board: &BoardGenesis,
 ) -> BoardDisplayInfo {
-    let (name, description) = get_effective_board_info(persistence, forum_hash, board);
+    let (name, description) = persistence
+        .apply_board_edits(forum_hash, board)
+        .unwrap_or_else(|_| Some((board.name().to_string(), board.description().to_string())))
+        .unwrap_or_else(|| (board.name().to_string(), board.description().to_string()));
 
     BoardDisplayInfo {
         hash: board.hash().to_hex(),
@@ -1001,14 +1004,14 @@ pub async fn forum_view_page(
     let filtered_boards: Vec<_> = paginated_result
         .items
         .into_iter()
-        .filter(|b| !hidden_boards.contains(b.hash()))
+        .filter(|b| !hidden_boards.contains(b.board.hash()))
         .collect();
 
     let has_more = filtered_boards.len() > limit;
     let boards: Vec<BoardDisplayInfo> = filtered_boards
-        .into_iter()
+        .iter()
         .take(limit)
-        .map(|b| build_board_display_info(&app_state.forum_persistence, &forum_content_hash, &b))
+        .map(build_board_display_info_from_summary)
         .collect();
 
     // Compute next cursor from the last item
@@ -1271,26 +1274,22 @@ pub async fn board_view_page(
     let filtered_threads: Vec<_> = paginated_result
         .items
         .into_iter()
-        .filter(|t| !hidden_threads.contains(t.hash()))
+        .filter(|s| !hidden_threads.contains(s.thread.hash()))
         .collect();
 
     let has_more = filtered_threads.len() > limit;
     let threads: Vec<ThreadDisplayInfo> = filtered_threads
         .into_iter()
         .take(limit)
-        .map(|t| {
-            let post_count = app_state
-                .forum_persistence
-                .get_post_count(&forum_content_hash, t.hash())
-                .unwrap_or(0);
-            let body_preview: String = t.body().chars().take(100).collect();
+        .map(|summary| {
+            let body_preview: String = summary.thread.body().chars().take(100).collect();
             ThreadDisplayInfo {
-                hash: t.hash().to_hex(),
-                title: t.title().to_string(),
+                hash: summary.thread.hash().to_hex(),
+                title: summary.thread.title().to_string(),
                 body_preview,
-                author_short: fingerprint_from_identity(t.author_identity()),
-                post_count,
-                created_at_display: format_timestamp(t.created_at()),
+                author_short: fingerprint_from_identity(summary.thread.author_identity()),
+                post_count: summary.post_count,
+                created_at_display: format_timestamp(summary.thread.created_at()),
             }
         })
         .collect();
@@ -1336,8 +1335,11 @@ pub async fn board_view_page(
         .any(|mod_fp| user_fingerprints.iter().any(|fp| *fp == mod_fp));
 
     // Get effective board name/description (after applying any edits)
-    let (board_name, board_description) =
-        get_effective_board_info(&app_state.forum_persistence, &forum_content_hash, &board);
+    let (board_name, board_description) = app_state
+        .forum_persistence
+        .apply_board_edits(&forum_content_hash, &board)
+        .unwrap_or_else(|_| Some((board.name().to_string(), board.description().to_string())))
+        .unwrap_or_else(|| (board.name().to_string(), board.description().to_string()));
 
     // Get effective forum name (after applying any edits)
     let (forum_name, _) = get_effective_forum_info(
@@ -1556,45 +1558,26 @@ pub async fn thread_view_page(
             total_count: Some(0),
         });
 
-    // We also need all posts for quote resolution (not just current page)
-    // For performance, we could cache this or use a different approach
-    let all_posts = app_state
-        .forum_persistence
-        .get_posts(&forum_content_hash, &thread_content_hash)
-        .unwrap_or_default();
-
     // Filter hidden posts and apply limit
+    // PostSummary already includes resolved quote previews (batch-loaded)
     let filtered_posts: Vec<_> = paginated_result
         .items
         .into_iter()
-        .filter(|p| !hidden_posts.contains(p.hash()))
+        .filter(|p| !hidden_posts.contains(p.post.hash()))
         .collect();
 
     let has_more = filtered_posts.len() > limit;
 
-    // Build post display info with quote resolution
+    // Build post display info (quote previews already resolved in PostSummary)
     let post_displays: Vec<PostDisplayInfo> = filtered_posts
         .into_iter()
         .take(limit)
-        .map(|p| {
-            // Try to resolve quote from all posts
-            let quote_body = p.quote_hash().and_then(|qh| {
-                all_posts
-                    .iter()
-                    .find(|other| other.hash() == qh)
-                    .map(|other| {
-                        let preview: String = other.body().chars().take(200).collect();
-                        preview + if other.body().len() > 200 { "..." } else { "" }
-                    })
-            });
-
-            PostDisplayInfo {
-                hash: p.hash().to_hex(),
-                body: p.body().to_string(),
-                author_short: fingerprint_from_identity(p.author_identity()),
-                quote_body,
-                created_at_display: format_timestamp(p.created_at()),
-            }
+        .map(|p| PostDisplayInfo {
+            hash: p.post.hash().to_hex(),
+            body: p.post.body().to_string(),
+            author_short: fingerprint_from_identity(p.post.author_identity()),
+            quote_body: p.quote_preview,
+            created_at_display: format_timestamp(p.post.created_at()),
         })
         .collect();
 
@@ -1642,8 +1625,11 @@ pub async fn thread_view_page(
         .collect();
 
     // Get effective board name (after applying any edits)
-    let (board_name, _) =
-        get_effective_board_info(&app_state.forum_persistence, &forum_content_hash, &board);
+    let (board_name, _) = app_state
+        .forum_persistence
+        .apply_board_edits(&forum_content_hash, &board)
+        .unwrap_or_else(|_| Some((board.name().to_string(), board.description().to_string())))
+        .unwrap_or_else(|| (board.name().to_string(), board.description().to_string()));
 
     // Get effective forum name (after applying any edits)
     let (forum_name, _) = get_effective_forum_info(
@@ -3748,25 +3734,36 @@ pub async fn pm_inbox_page(
         match app_state.forum_persistence.load_conversation_manager() {
             Ok(manager) => {
                 let total = manager.total_conversations();
-                let (sessions, next) = manager.all_sessions_paginated(cursor, DEFAULT_PAGE_SIZE);
+                let (summaries, next) = manager.all_sessions_paginated(cursor, DEFAULT_PAGE_SIZE);
 
-                let convs: Vec<ConversationInfo> = sessions
+                let convs: Vec<ConversationInfo> = summaries
                     .into_iter()
-                    .map(|conv_session| {
-                        let id = hex::encode(conv_session.conversation_id().as_bytes());
-                        let peer_fp = conv_session.peer_identity_hash().to_hex();
+                    .map(|summary| {
+                        let id = hex::encode(summary.session.conversation_id().as_bytes());
+                        let peer_fp = summary.session.peer_identity_hash().to_hex();
+
+                        // Truncate last message preview
+                        let last_message_preview = summary
+                            .last_message
+                            .map(|body| {
+                                if body.len() > 50 {
+                                    format!("{}...", &body[..50])
+                                } else {
+                                    body.to_string()
+                                }
+                            })
+                            .unwrap_or_else(|| "No messages".to_string());
+
                         ConversationInfo {
                             id: id.clone(),
                             id_short: format!("{}...", &id[..16.min(id.len())]),
                             peer_fingerprint: peer_fp.clone(),
                             peer_short: format!("{}...", &peer_fp[..16.min(peer_fp.len())]),
-                            last_message_preview: "...".to_string(),
+                            last_message_preview,
                             last_activity_display: format_timestamp_display(
-                                conv_session.last_activity(),
+                                summary.session.last_activity(),
                             ),
-                            message_count: (conv_session.messages_sent()
-                                + conv_session.messages_received())
-                                as usize,
+                            message_count: summary.message_count,
                             has_unread: false,
                         }
                     })
@@ -4767,6 +4764,11 @@ pub async fn reply_pm_handler(
                     warn!("Failed to store reply in history: {}", e);
                 }
 
+                // Record sent message in session
+                if let Some(session) = conversation_manager.get_session_mut(&conversation_id) {
+                    session.record_sent();
+                }
+
                 // Save conversation manager
                 if let Err(e) = app_state
                     .forum_persistence
@@ -4807,4 +4809,77 @@ pub async fn reply_pm_handler(
             .into_response()
         }
     }
+}
+
+/// Form for deleting a conversation.
+#[derive(Debug, Deserialize)]
+pub struct DeleteConversationForm {
+    pub csrf_token: String,
+}
+
+/// Delete conversation handler.
+pub async fn pm_delete_conversation(
+    Path((forum_hash_str, conversation_id_str)): Path<(String, String)>,
+    State(app_state): State<AppState>,
+    session: Session,
+    Form(form): Form<DeleteConversationForm>,
+) -> impl IntoResponse {
+    // Verify CSRF token
+    if !validate_csrf_token(&session, &app_state.csrf_store, &form.csrf_token) {
+        return Redirect::to(&format!("/forum/{}/pm?error=invalid_csrf", forum_hash_str))
+            .into_response();
+    }
+
+    // Parse conversation ID
+    let conversation_id: [u8; 32] = match hex::decode(&conversation_id_str) {
+        Ok(bytes) if bytes.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            arr
+        }
+        _ => {
+            return Redirect::to(&format!(
+                "/forum/{}/pm?error=invalid_conversation_id",
+                forum_hash_str
+            ))
+            .into_response();
+        }
+    };
+
+    // Load conversation manager and delete the conversation
+    let mut conversation_manager = match app_state.forum_persistence.load_conversation_manager() {
+        Ok(manager) => manager,
+        Err(_) => {
+            return Redirect::to(&format!("/forum/{}/pm?error=load_failed", forum_hash_str))
+                .into_response();
+        }
+    };
+
+    // Remove the session (this also removes message history)
+    if conversation_manager
+        .remove_session(&conversation_id)
+        .is_none()
+    {
+        return Redirect::to(&format!(
+            "/forum/{}/pm?error=conversation_not_found",
+            forum_hash_str
+        ))
+        .into_response();
+    }
+
+    // Save the updated conversation manager
+    if let Err(e) = app_state
+        .forum_persistence
+        .store_conversation_manager(&conversation_manager)
+    {
+        error!("Failed to save conversation manager after delete: {}", e);
+        return Redirect::to(&format!("/forum/{}/pm?error=save_failed", forum_hash_str))
+            .into_response();
+    }
+
+    Redirect::to(&format!(
+        "/forum/{}/pm?result=conversation_deleted",
+        forum_hash_str
+    ))
+    .into_response()
 }

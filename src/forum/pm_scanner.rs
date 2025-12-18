@@ -408,8 +408,13 @@ pub fn scan_forum_for_messages(
             }
         }
 
-        // Store the message
+        // Store the message and record receipt
         let _ = conversation_manager.store_message(conversation_id, stored_message.clone());
+
+        // Update session's received message counter
+        if let Some(session) = conversation_manager.get_session_mut(conversation_id) {
+            session.record_received();
+        }
     }
 
     Ok(scan_result)

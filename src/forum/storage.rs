@@ -151,6 +151,35 @@ impl<T> PaginatedResult<T> {
     }
 }
 
+/// Summary of a thread with post count (for efficient listing).
+#[derive(Debug, Clone)]
+pub struct ThreadSummary {
+    /// The thread data.
+    pub thread: ThreadRoot,
+    /// Number of posts (replies) in the thread.
+    pub post_count: usize,
+}
+
+/// Summary of a board with effective name/description after edits applied.
+#[derive(Debug, Clone)]
+pub struct BoardSummary {
+    /// The board data.
+    pub board: BoardGenesis,
+    /// Effective name after edits (or original if no edits).
+    pub effective_name: String,
+    /// Effective description after edits (or original if no edits).
+    pub effective_description: String,
+}
+
+/// Summary of a post with resolved quote content (for efficient listing).
+#[derive(Debug, Clone)]
+pub struct PostSummary {
+    /// The post data.
+    pub post: Post,
+    /// Resolved quote preview (first 200 chars of quoted post body), if this post quotes another.
+    pub quote_preview: Option<String>,
+}
+
 /// RocksDB-backed forum storage.
 #[derive(Debug)]
 pub struct ForumStorage {
@@ -1233,6 +1262,9 @@ impl ForumStorage {
     /// Boards are sorted by creation time (newest first).
     /// Pass `None` for cursor to get the first page.
     ///
+    /// Returns `BoardSummary` which includes effective name/description after edits,
+    /// batch-loading all edits in a single pass to avoid N+1 queries.
+    ///
     /// This method is efficient: it uses sorted indexes and stops iteration
     /// once enough items have been collected.
     pub fn get_boards_paginated(
@@ -1240,7 +1272,7 @@ impl ForumStorage {
         forum_hash: &ContentHash,
         cursor: Option<&Cursor>,
         limit: usize,
-    ) -> Result<PaginatedResult<BoardGenesis>> {
+    ) -> Result<PaginatedResult<BoardSummary>> {
         let forum_prefix = forum_hash.as_bytes();
 
         // Build the seek key for iteration
@@ -1299,16 +1331,80 @@ impl ForumStorage {
             }
         }
 
+        // Batch-load all edits for these boards in a single pass over the edit index
+        // Key format: forum_hash (64) + target_hash (64) + edit_hash (64) = 192 bytes
+        let board_hash_set: HashSet<_> = boards.iter().map(|b| *b.hash()).collect();
+        let mut edits_by_target: HashMap<ContentHash, Vec<(u64, EditNode)>> = HashMap::new();
+
+        // Scan the entire forum's edit index once
+        self.db
+            .prefix_iterate(CF_IDX_EDITS, forum_prefix, |key, value| {
+                if key.len() == 192 {
+                    let target_hash = ContentHash::from_bytes(key[64..128].try_into().unwrap());
+                    // Only process edits for boards in our current page
+                    if board_hash_set.contains(&target_hash) {
+                        let edit_hash = ContentHash::from_bytes(key[128..192].try_into().unwrap());
+                        let timestamp = if value.len() == 8 {
+                            u64::from_be_bytes(value.try_into().unwrap())
+                        } else {
+                            0
+                        };
+                        // Load the edit node
+                        if let Ok(Some(node)) = self.load_node(forum_hash, &edit_hash) {
+                            if let Some(edit) = node.as_edit() {
+                                edits_by_target
+                                    .entry(target_hash)
+                                    .or_default()
+                                    .push((timestamp, edit.clone()));
+                            }
+                        }
+                    }
+                }
+                true
+            })?;
+
+        // Sort edits by timestamp for each target (oldest first for proper replay)
+        for edits in edits_by_target.values_mut() {
+            edits.sort_by_key(|(ts, _)| *ts);
+        }
+
+        // Build BoardSummary with effective name/description
+        let summaries: Vec<BoardSummary> = boards
+            .into_iter()
+            .map(|board| {
+                let mut name = board.name().to_string();
+                let mut description = board.description().to_string();
+
+                // Apply edits in order if any exist for this board
+                if let Some(edits) = edits_by_target.get(board.hash()) {
+                    for (_, edit) in edits {
+                        if let Some(new_name) = edit.new_name() {
+                            name = new_name.to_string();
+                        }
+                        if let Some(new_desc) = edit.new_description() {
+                            description = new_desc.to_string();
+                        }
+                    }
+                }
+
+                BoardSummary {
+                    board,
+                    effective_name: name,
+                    effective_description: description,
+                }
+            })
+            .collect();
+
         // Create cursor for next page from the last loaded board
-        let next_cursor = if has_more && !boards.is_empty() {
-            let last_board = boards.last().unwrap();
+        let next_cursor = if has_more && !summaries.is_empty() {
+            let last_board = &summaries.last().unwrap().board;
             Some(Cursor::new(last_board.created_at(), *last_board.hash()))
         } else {
             None
         };
 
         Ok(PaginatedResult {
-            items: boards,
+            items: summaries,
             next_cursor,
             total_count: Some(total_count),
         })
@@ -1319,6 +1415,8 @@ impl ForumStorage {
     /// Threads are sorted by creation time (newest first).
     /// Pass `None` for cursor to get the first page.
     ///
+    /// Returns `ThreadSummary` which includes post counts, avoiding N+1 queries.
+    ///
     /// This method is efficient: it uses sorted indexes and stops iteration
     /// once enough items have been collected. Note that moved threads require
     /// additional processing.
@@ -1328,7 +1426,7 @@ impl ForumStorage {
         board_hash: &ContentHash,
         cursor: Option<&Cursor>,
         limit: usize,
-    ) -> Result<PaginatedResult<ThreadRoot>> {
+    ) -> Result<PaginatedResult<ThreadSummary>> {
         let moved_threads = self.get_moved_threads(forum_hash)?;
         let prefix = Self::thread_index_prefix(forum_hash, board_hash);
 
@@ -1407,27 +1505,28 @@ impl ForumStorage {
         let has_more = thread_hashes.len() > limit;
         let page_hashes: Vec<_> = thread_hashes.into_iter().take(limit).collect();
 
-        // Load the actual thread nodes
-        let mut threads = Vec::with_capacity(page_hashes.len());
+        // Load the actual thread nodes with post counts in a single pass
+        let mut summaries = Vec::with_capacity(page_hashes.len());
         for thread_hash in &page_hashes {
             if let Some(thread) = self.get_thread(forum_hash, thread_hash)? {
-                threads.push(thread);
+                let post_count = self.get_post_count(forum_hash, thread_hash).unwrap_or(0);
+                summaries.push(ThreadSummary { thread, post_count });
             }
         }
 
         // Sort by timestamp descending (needed because moved threads might be out of order)
-        threads.sort_by_key(|t| std::cmp::Reverse(t.created_at()));
-        threads.truncate(limit);
+        summaries.sort_by_key(|s| std::cmp::Reverse(s.thread.created_at()));
+        summaries.truncate(limit);
 
-        let next_cursor = if has_more && !threads.is_empty() {
-            let last_thread = threads.last().unwrap();
-            Some(Cursor::new(last_thread.created_at(), *last_thread.hash()))
+        let next_cursor = if has_more && !summaries.is_empty() {
+            let last = summaries.last().unwrap();
+            Some(Cursor::new(last.thread.created_at(), *last.thread.hash()))
         } else {
             None
         };
 
         Ok(PaginatedResult {
-            items: threads,
+            items: summaries,
             next_cursor,
             total_count: Some(total_count),
         })
@@ -1438,6 +1537,9 @@ impl ForumStorage {
     /// Posts are sorted by creation time (oldest first for chronological reading).
     /// Pass `None` for cursor to get the first page.
     ///
+    /// Returns `PostSummary` which includes resolved quote previews, batch-loading
+    /// only the quoted posts to avoid loading all posts in the thread.
+    ///
     /// This method is efficient: it uses sorted indexes and stops iteration
     /// once enough items have been collected.
     pub fn get_posts_paginated(
@@ -1446,7 +1548,7 @@ impl ForumStorage {
         thread_hash: &ContentHash,
         cursor: Option<&Cursor>,
         limit: usize,
-    ) -> Result<PaginatedResult<Post>> {
+    ) -> Result<PaginatedResult<PostSummary>> {
         let prefix = Self::post_index_prefix(forum_hash, thread_hash);
 
         // Build the seek key for iteration
@@ -1503,15 +1605,51 @@ impl ForumStorage {
             }
         }
 
-        let next_cursor = if has_more && !posts.is_empty() {
-            let last_post = posts.last().unwrap();
+        // Collect unique quote hashes from posts on this page
+        let quote_hashes: HashSet<ContentHash> = posts
+            .iter()
+            .filter_map(|p| p.quote_hash().copied())
+            .collect();
+
+        // Batch-load only the quoted posts (instead of all posts in thread)
+        let mut quoted_posts: HashMap<ContentHash, Post> = HashMap::new();
+        for quote_hash in &quote_hashes {
+            if let Ok(Some(quoted_post)) = self.load_post(forum_hash, quote_hash) {
+                quoted_posts.insert(*quote_hash, quoted_post);
+            }
+        }
+
+        // Build PostSummary with resolved quote previews
+        let summaries: Vec<PostSummary> = posts
+            .into_iter()
+            .map(|post| {
+                let quote_preview = post.quote_hash().and_then(|qh| {
+                    quoted_posts.get(qh).map(|quoted| {
+                        let preview: String = quoted.body().chars().take(200).collect();
+                        if quoted.body().len() > 200 {
+                            preview + "..."
+                        } else {
+                            preview
+                        }
+                    })
+                });
+
+                PostSummary {
+                    post,
+                    quote_preview,
+                }
+            })
+            .collect();
+
+        let next_cursor = if has_more && !summaries.is_empty() {
+            let last_post = &summaries.last().unwrap().post;
             Some(Cursor::new(last_post.created_at(), *last_post.hash()))
         } else {
             None
         };
 
         Ok(PaginatedResult {
-            items: posts,
+            items: summaries,
             next_cursor,
             total_count: Some(total_count),
         })

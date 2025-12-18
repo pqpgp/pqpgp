@@ -393,6 +393,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "/forum/:forum_hash/pm/conversation/:conversation_id/reply",
             post(forum_handlers::reply_pm_handler),
         )
+        .route(
+            "/forum/:forum_hash/pm/conversation/:conversation_id/delete",
+            post(forum_handlers::pm_delete_conversation),
+        )
         .nest_service("/static", ServeDir::new("src/web/static"))
         .layer(session_layer)
         // Security headers to prevent common attacks

@@ -572,6 +572,17 @@ impl fmt::Debug for StoredMessage {
     }
 }
 
+/// Summary info for a conversation (for inbox display).
+#[derive(Debug)]
+pub struct ConversationSummary<'a> {
+    /// The conversation session.
+    pub session: &'a ConversationSession,
+    /// Last message body (if any).
+    pub last_message: Option<&'a str>,
+    /// Total message count.
+    pub message_count: usize,
+}
+
 /// Manager for all conversation sessions.
 ///
 /// This stores session state for all active conversations and provides
@@ -663,19 +674,20 @@ impl ConversationManager {
     /// Returns conversations with cursor-based pagination.
     ///
     /// Conversations are sorted by last activity (newest first).
+    /// Returns session summaries including last message preview and message count.
     ///
     /// # Arguments
     /// * `cursor` - Optional cursor (last_activity timestamp, conversation_id) to start after
     /// * `limit` - Maximum number of conversations to return
     ///
     /// # Returns
-    /// A tuple of (conversations, next_cursor) where next_cursor is Some if there are more.
+    /// A tuple of (summaries, next_cursor) where next_cursor is Some if there are more.
     pub fn all_sessions_paginated(
         &self,
         cursor: Option<(u64, [u8; CONVERSATION_ID_SIZE])>,
         limit: usize,
     ) -> (
-        Vec<&ConversationSession>,
+        Vec<ConversationSummary<'_>>,
         Option<(u64, [u8; CONVERSATION_ID_SIZE])>,
     ) {
         // Collect and sort by last_activity descending
@@ -714,7 +726,23 @@ impl ConversationManager {
             None
         };
 
-        (page, next_cursor)
+        // Build summaries with message info in single pass
+        let summaries: Vec<_> = page
+            .into_iter()
+            .map(|session| {
+                let conv_id = session.conversation_id().as_bytes();
+                let messages = self.message_history.get(conv_id);
+                ConversationSummary {
+                    session,
+                    last_message: messages
+                        .and_then(|m| m.last())
+                        .map(|m| m.inner.body.as_str()),
+                    message_count: messages.map(|m| m.len()).unwrap_or(0),
+                }
+            })
+            .collect();
+
+        (summaries, next_cursor)
     }
 
     /// Returns the total number of conversations.

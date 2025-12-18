@@ -269,6 +269,24 @@ The pagination algorithm:
 
 For forums with 1000+ nodes, this reduces page load times from 300-400ms to 2-10ms.
 
+**Summary Types (N+1 Query Elimination):**
+
+Paginated queries return summary structs that include related data, eliminating N+1 query patterns:
+
+| Query                    | Return Type           | Included Data                          |
+| ------------------------ | --------------------- | -------------------------------------- |
+| `get_boards_paginated`   | `BoardSummary`        | Board + effective name/description     |
+| `get_threads_paginated`  | `ThreadSummary`       | Thread + post count                    |
+| `get_posts_paginated`    | `PostSummary`         | Post + quote preview (if quoting)      |
+| `all_sessions_paginated` | `ConversationSummary` | Session + last message + message count |
+
+This eliminates per-item queries:
+
+- **Boards**: Edits are batch-loaded in a single pass over the edit index
+- **Threads**: Post counts are fetched from `idx_post_counts` (O(1) per thread)
+- **Posts**: Only quoted posts are loaded (not all posts in thread)
+- **Conversations**: Messages are counted and last message fetched in a single pass
+
 **Automatic migration:** When opening a database with old-format indexes (128-byte board keys instead of 136-byte), indexes are automatically rebuilt on startup:
 
 ```

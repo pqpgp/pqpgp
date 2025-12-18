@@ -53,8 +53,9 @@ pub mod validation;
 pub use board::{BoardGenesis, BoardGenesisContent};
 pub use client::ForumClient;
 pub use conversation::{
-    ConversationId, ConversationManager, ConversationSession, ConversationStats, RatchetSendInfo,
-    StoredMessage, CONVERSATION_ID_SIZE, CONVERSATION_KEY_SIZE, MAX_MESSAGES_PER_CONVERSATION,
+    ConversationId, ConversationManager, ConversationSession, ConversationStats,
+    ConversationSummary, RatchetSendInfo, StoredMessage, CONVERSATION_ID_SIZE,
+    CONVERSATION_KEY_SIZE, MAX_MESSAGES_PER_CONVERSATION,
 };
 pub use dag::DagNode;
 pub use edit::{EditNode, EditNodeContent, EditType};
@@ -83,7 +84,10 @@ pub use sealed_message::{
     SealedPrivateMessage, SealedPrivateMessageContent, X3DHData,
 };
 pub use state::{ForumRelayState, ForumState};
-pub use storage::{Cursor, ForumMetadata, ForumStorage, PaginatedResult, DEFAULT_PAGE_SIZE};
+pub use storage::{
+    BoardSummary, Cursor, ForumMetadata, ForumStorage, PaginatedResult, PostSummary, ThreadSummary,
+    DEFAULT_PAGE_SIZE,
+};
 pub use sync::{
     ExportForumRequest, ExportForumResponse, FetchNodesRequest, FetchNodesResponse, SerializedNode,
     SubmitNodeRequest, SubmitNodeResponse, SyncRequest, SyncResponse,
