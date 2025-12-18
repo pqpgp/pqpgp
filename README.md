@@ -4,14 +4,19 @@
 
 A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, providing quantum-resistant cryptographic operations while maintaining compatibility with standard PGP workflows and packet formats.
 
-## 📚 Documentation
+> [!WARNING]
+> While PQPGP implements cryptographic algorithms standardized by NIST, this software has not undergone a formal security audit. A formal audit is planned once the design and APIs have stabilized.
+> This project is under active development and is considered experimental. Features may change, and not all functionality is production-ready.
+> If you discover bugs, security vulnerabilities, or have feature requests, please open an issue on [GitHub](https://github.com/pqpgp/pqpgp/issues).
+
+## Documentation
 
 - **[Cryptography](docs/cryptography.md)** - Encryption, signatures, key management, ASCII armor
 - **[Forums](docs/forums.md)** - DAG structure, moderation, sync protocol
 - **[Private Messages](docs/private-messages.md)** - Sealed sender, X3DH, Double Ratchet
 - **[Relay Server](docs/relay.md)** - Message routing, forum hosting, peer sync
 
-## 🔒 Security Features
+## Security Features
 
 - **Post-Quantum Cryptography**: Uses NIST-standardized ML-KEM-1024 and ML-DSA-87 algorithms
 - **Hybrid Approach**: Combines classical and post-quantum algorithms for maximum security
@@ -22,7 +27,7 @@ A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, provi
 - **PGP Compatible**: Standard PGP packet formats (RFC 4880) with new algorithm identifiers
 - **Production Security**: Comprehensive input validation, rate limiting, and attack prevention
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -294,7 +299,7 @@ Methods:
   relay.stats      - Server statistics
 ```
 
-## 🔑 Password Protection
+## Password Protection
 
 PQPGP supports optional password-based encryption of private keys using industry-standard Argon2id key derivation and AES-256-GCM encryption:
 
@@ -329,7 +334,7 @@ let signature = sign_message(keypair.private_key(), message, Some(&password))?;
 - **Forward Secure**: Changing password doesn't reveal previous keys
 - **Timing Attack Resistant**: Constant-time operations prevent information leakage
 
-## 💬 Post-Quantum Chat Protocol
+## Post-Quantum Chat Protocol
 
 PQPGP implements an end-to-end encrypted chat system inspired by the Signal Protocol, but using post-quantum cryptographic primitives:
 
@@ -388,7 +393,7 @@ src/chat/
 └── header.rs      # Encrypted message headers
 ```
 
-## 🔑 Advanced Key Derivation (HKDF)
+## Advanced Key Derivation (HKDF)
 
 PQPGP implements state-of-the-art key derivation using HKDF-SHA3-512:
 
@@ -420,7 +425,7 @@ let ciphertext = aes_gcm.encrypt(nonce, Payload { msg, aad })?;
 - **Cryptographically secure**: HKDF is proven secure in the random oracle model
 - **Standards-based**: Implements RFC 5869 with SHA3-512 for quantum resistance
 
-## 🔐 Cryptographic Algorithms
+## Cryptographic Algorithms
 
 | Operation            | Algorithm     | NIST Standard | Key Size    |
 | -------------------- | ------------- | ------------- | ----------- |
@@ -431,7 +436,7 @@ let ciphertext = aes_gcm.encrypt(nonce, Payload { msg, aad })?;
 | Hashing              | SHA3-512      | FIPS 202      | 64 bytes    |
 | Password Hashing     | Argon2id      | RFC 9106      | 32 bytes    |
 
-## 🛡️ Security Testing
+## Security Testing
 
 PQPGP includes a comprehensive security testing framework with **430+ tests** covering:
 
@@ -447,7 +452,7 @@ Run the security test suite:
 cargo test --release
 ```
 
-## 📦 Architecture
+## Architecture
 
 ### Core Library Structure
 
@@ -608,7 +613,7 @@ tests/                # Comprehensive test suite
 └── timing_safe_crypto_tests.rs # Constant-time operation verification
 ```
 
-## 🔧 Development
+## Development
 
 ### Prerequisites
 
@@ -645,7 +650,7 @@ cargo clippy --workspace -- -D warnings
 cargo bench
 ```
 
-## 📋 Standards Compliance
+## Standards Compliance
 
 - **RFC 4880**: OpenPGP Message Format
 - **RFC 5869**: HMAC-based Extract-and-Expand Key Derivation Function (HKDF)
@@ -655,7 +660,7 @@ cargo bench
 - **NIST FIPS 197**: Advanced Encryption Standard (AES)
 - **NIST FIPS 202**: SHA-3 Standard
 
-## 🚨 Security Considerations
+## Security Considerations
 
 ### Quantum Threat Timeline
 
@@ -678,7 +683,7 @@ Current estimates suggest large-scale quantum computers capable of breaking RSA 
 - **No Password Storage**: Passwords are never stored, only used for key derivation
 - **Secure Prompting**: CLI uses secure password input (no echo, memory clearing)
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -688,20 +693,11 @@ Current estimates suggest large-scale quantum computers capable of breaking RSA 
 6. Push to branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-## 📄 License
+## License
 
-This project is dual-licensed under either:
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
-- MIT License ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-
-at your option.
-
-## ⚠️ Disclaimer
-
-While PQPGP implements cryptographic algorithms standardized by NIST, this software has not undergone formal security auditing. For production use in high-security environments, consider professional cryptographic review.
-
-## 🔗 References
+## References
 
 - [NIST Post-Quantum Cryptography Standards](https://csrc.nist.gov/Projects/post-quantum-cryptography/post-quantum-cryptography-standardization)
 - [RFC 4880: OpenPGP Message Format](https://tools.ietf.org/html/rfc4880)
