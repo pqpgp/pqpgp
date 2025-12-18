@@ -124,8 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                           The security of this message relies on lattice-based cryptography which is believed to be \
                           secure against quantum computer attacks. Pretty cool, right?";
 
-    println!("📝 Original message ({} bytes):", secret_message.len());
-    println!("   \"{}\"", secret_message);
+    println!("📝 Original message: {} bytes", secret_message.len());
 
     // Sign the message first (like our web UI)
     let signature = sign_message(
