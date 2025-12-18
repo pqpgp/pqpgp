@@ -55,7 +55,7 @@ rocksdb = "0.24"
 num_cpus = "1.16"
 
 [dev-dependencies]
-criterion = { version = "0.5.1", features = ["html_reports"] }
+criterion = { version = "0.8.1", features = ["html_reports"] }
 proptest = "1.5.0"         # Property-based testing
 pretty_assertions = "1.4.0"
 tempfile = "3.8.1"         # Temporary file/directory creation for tests
