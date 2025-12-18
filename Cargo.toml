@@ -30,7 +30,7 @@ hkdf = "0.12.4"            # HMAC-based Key Derivation Function
 hmac = "0.12.1"            # HMAC for message authentication
 rand = "0.8.5"             # Cryptographically secure random number generation
 subtle = "2.5"             # Constant-time operations for security
-zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
+zeroize = { version = "1.8", features = ["derive"] } # Secure memory clearing
 
 # Password-based key derivation
 argon2 = "0.5"             # Argon2 for password hashing
