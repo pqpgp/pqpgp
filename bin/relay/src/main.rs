@@ -25,7 +25,10 @@ mod peer_sync;
 mod rate_limit;
 mod rpc;
 
-use axum::{routing::post, Router};
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
 use forum::PersistentForumState;
 use rate_limit::RateLimitLayer;
 use rpc::{AppState, RelayState, SharedForumState, SharedRelayState};
@@ -121,9 +124,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create rate limit layer
     let rate_limit = RateLimitLayer::for_writes();
 
-    // Build router with single RPC endpoint
+    // Build router with RPC and health endpoints
     let app = Router::new()
         .route("/rpc", post(rpc::handle_rpc))
+        .route("/health", get(health_check))
         .with_state(app_state)
         .layer(rate_limit);
 
@@ -171,4 +175,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     Ok(())
+}
+
+/// Health check response.
+#[derive(serde::Serialize)]
+struct HealthResponse {
+    status: &'static str,
+}
+
+/// Simple health check endpoint for load balancers and monitoring.
+async fn health_check() -> Json<HealthResponse> {
+    Json(HealthResponse { status: "ok" })
 }
