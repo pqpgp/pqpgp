@@ -85,20 +85,20 @@ All operations use a single JSON-RPC 2.0 endpoint:
 
 #### User Methods
 
-| Method            | Description                    |
-| ----------------- | ------------------------------ |
+| Method            | Description                      |
+| ----------------- | -------------------------------- |
 | `user.register`   | Register user with prekey bundle |
-| `user.unregister` | Unregister a user              |
-| `user.get`        | Get user's prekey bundle       |
-| `user.list`       | List all registered users      |
+| `user.unregister` | Unregister a user                |
+| `user.get`        | Get user's prekey bundle         |
+| `user.list`       | List all registered users        |
 
 #### Message Methods
 
-| Method          | Description                 |
-| --------------- | --------------------------- |
-| `message.send`  | Send message to recipient   |
+| Method          | Description                  |
+| --------------- | ---------------------------- |
+| `message.send`  | Send message to recipient    |
 | `message.fetch` | Fetch messages for recipient |
-| `message.check` | Check pending message count |
+| `message.check` | Check pending message count  |
 
 #### Forum Methods
 
@@ -436,9 +436,9 @@ pqpgp_relay_data/
 
 The relay implements token bucket rate limiting:
 
-| Operation Type | Limit               |
-| -------------- | ------------------- |
-| All operations | 20 requests/second  |
+| Operation Type | Limit              |
+| -------------- | ------------------ |
+| All operations | 20 requests/second |
 
 Rate limits are per-IP address.
 
@@ -478,12 +478,20 @@ pqpgp-relay --bind 0.0.0.0:3002 \
 
 ```
 bin/relay/src/
-├── main.rs          # Server entry point, routing
-├── rpc.rs           # Unified JSON-RPC 2.0 handler
-├── forum/           # Forum DAG storage module
-│   ├── mod.rs       # Module exports
-│   ├── state.rs     # In-memory forum state
-│   └── persistence.rs # RocksDB storage layer
-├── peer_sync.rs     # Relay-to-relay synchronization (uses RPC)
-└── rate_limit.rs    # Token bucket rate limiting
+├── main.rs              # Server entry point, routing
+├── rpc/                 # Unified JSON-RPC 2.0 handler
+│   ├── mod.rs           # Module exports
+│   ├── state.rs         # Relay state types and RwLock helpers
+│   └── handlers/        # Domain-specific handlers
+│       ├── mod.rs       # Main dispatcher, helper functions
+│       ├── user.rs      # user.* methods
+│       ├── message.rs   # message.* methods
+│       ├── forum.rs     # forum.* methods
+│       └── system.rs    # relay.* methods
+├── forum/               # Forum DAG storage module
+│   ├── mod.rs           # Module exports
+│   ├── state.rs         # In-memory forum state
+│   └── persistence.rs   # RocksDB storage layer
+├── peer_sync.rs         # Relay-to-relay synchronization (uses RPC)
+└── rate_limit.rs        # Token bucket rate limiting
 ```

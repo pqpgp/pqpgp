@@ -469,8 +469,12 @@ src/
 ├── validation/       # Security validation and rate limiting
 ├── keyring/          # Key storage and management
 ├── armor/            # ASCII armor encoding/decoding + signed message parsing
+├── dag/              # Generic DAG operations (extracted from forum)
+├── rpc/              # Generic JSON-RPC 2.0 types and client
+├── storage/          # Generic RocksDB storage abstraction
 ├── forum/            # DAG-based forum system
 │   ├── types.rs      # ContentHash, NodeType, ModAction
+│   ├── constants.rs  # Validation limits and shared constants
 │   ├── genesis.rs    # ForumGenesis node
 │   ├── board.rs      # BoardGenesis node
 │   ├── thread.rs     # ThreadRoot node
@@ -479,9 +483,12 @@ src/
 │   ├── moderation.rs # ModActionNode for moderator management
 │   ├── permissions.rs# Permission checking and moderator resolution
 │   ├── dag.rs        # DagNode enum wrapper
+│   ├── dag_ops.rs    # DAG operations (compute_missing, topological sort)
 │   ├── sync.rs       # Sync protocol types (SyncRequest, FetchNodes, etc.)
 │   ├── storage.rs    # Client-side file-based DAG storage
+│   ├── state.rs      # Forum state management
 │   ├── client.rs     # ForumClient with sync orchestration
+│   ├── rpc_client.rs # JSON-RPC client for relay communication
 │   ├── validation.rs # Node validation rules
 │   ├── encryption_identity.rs  # X3DH prekey bundles for PM
 │   ├── sealed_message.rs       # SealedPrivateMessage node type
@@ -502,8 +509,8 @@ bin/web/
     ├── relay_client.rs # HTTP client for relay server
     ├── storage.rs    # Encrypted persistent storage for chat
     ├── csrf.rs       # CSRF protection
+    ├── rate_limiter.rs # Request rate limiting
     ├── forum_handlers.rs  # Forum web handlers with sync and validation logic
-    ├── forum_persistence.rs # RocksDB-backed local forum storage
     ├── templates.rs  # Askama template definitions
     └── templates/    # HTML templates (forum, chat, keys, etc.)
 ```
@@ -548,16 +555,24 @@ Invalid nodes are rejected and not stored, protecting against malicious relays.
 
 ```
 bin/relay/
-├── Cargo.toml           # Relay server dependencies (axum, rocksdb, reqwest)
+├── Cargo.toml               # Relay server dependencies (axum, rocksdb, reqwest)
 └── src/
-    ├── main.rs          # Server entry point, routing
-    ├── rpc.rs           # Unified JSON-RPC 2.0 handler
-    ├── forum/           # Forum module
-    │   ├── mod.rs       # Module exports
-    │   ├── state.rs     # Forum DAG state management
-    │   └── persistence.rs # RocksDB-backed persistence
-    ├── peer_sync.rs     # Relay-to-relay synchronization (uses RPC)
-    └── rate_limit.rs    # IP-based rate limiting middleware
+    ├── main.rs              # Server entry point, routing
+    ├── rpc/                 # Unified JSON-RPC 2.0 handler
+    │   ├── mod.rs           # Module exports
+    │   ├── state.rs         # Relay state types and RwLock helpers
+    │   └── handlers/        # Domain-specific handlers
+    │       ├── mod.rs       # Main dispatcher, helper functions
+    │       ├── user.rs      # user.* methods
+    │       ├── message.rs   # message.* methods
+    │       ├── forum.rs     # forum.* methods
+    │       └── system.rs    # relay.* methods
+    ├── forum/               # Forum module
+    │   ├── mod.rs           # Module exports
+    │   ├── state.rs         # Forum DAG state management
+    │   └── persistence.rs   # RocksDB-backed persistence
+    ├── peer_sync.rs         # Relay-to-relay synchronization (uses RPC)
+    └── rate_limit.rs        # IP-based rate limiting middleware
 
 # Single JSON-RPC 2.0 endpoint:
 # POST /rpc - All operations (user, message, forum, system)

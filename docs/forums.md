@@ -208,6 +208,7 @@ pqpgp_forum_data/
 ```
 src/forum/
 ├── types.rs              # ContentHash, NodeType, ModAction
+├── constants.rs          # Validation limits and shared constants
 ├── genesis.rs            # ForumGenesis node
 ├── board.rs              # BoardGenesis node
 ├── thread.rs             # ThreadRoot node
@@ -216,8 +217,16 @@ src/forum/
 ├── moderation.rs         # ModActionNode
 ├── permissions.rs        # Permission checking
 ├── dag.rs                # DagNode enum wrapper
+├── dag_ops.rs            # DAG operations (compute_missing, topological sort)
 ├── sync.rs               # Sync protocol types
 ├── storage.rs            # Client-side storage
+├── state.rs              # Forum state management
 ├── client.rs             # ForumClient with sync
-└── validation.rs         # Node validation rules
+├── rpc_client.rs         # JSON-RPC client for relay communication
+├── validation.rs         # Node validation rules
+├── encryption_identity.rs # PM prekey bundles
+├── sealed_message.rs     # Encrypted private message nodes
+├── pm_sealed.rs          # Seal/unseal functions
+├── pm_scanner.rs         # Efficient message scanning
+└── conversation.rs       # Double Ratchet session management
 ```
