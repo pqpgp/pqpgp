@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Move Thread - {{ thread_title }} - {{ forum_name }}{% endblock %}
+
+{% block content %}
+<p><a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}" class="btn">&larr; Back to Thread</a></p>
+
+<div class="card">
+    <h2>Move Thread</h2>
+    <p style="color: #718096;">
+        Moving: <strong>{{ thread_title }}</strong><br>
+        Currently in: <strong>{{ board_name }}</strong><br>
+        Forum: <strong>{{ forum_name }}</strong>
+    </p>
+
+    {% if has_error %}
+    <div class="alert alert-error">{{ error.as_ref().unwrap() }}</div>
+    {% endif %}
+
+    {% if has_result %}
+    <div class="alert alert-success">{{ result.as_ref().unwrap() }}</div>
+    {% endif %}
+
+    <h3>Select Destination Board</h3>
+    <p style="color: #718096; font-size: 0.9em;">Showing {{ boards.len() }} of {{ total_boards }} boards</p>
+
+    {% if boards.is_empty() %}
+    <p style="color: #718096; font-style: italic;">No other boards available.</p>
+    {% else %}
+    <div style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
+        {% for board in boards %}
+        {% if board.hash != board_hash %}
+        <form method="post" action="/forum/{{ forum_hash }}/thread/{{ thread_hash }}/move" style="margin: 0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="destination_board" value="{{ board.hash }}">
+
+            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>{{ board.name }}</strong>
+                    {% if !board.description.is_empty() %}
+                    <p style="color: #718096; margin: 5px 0 0 0; font-size: 0.9em;">{{ board.description }}</p>
+                    {% endif %}
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select name="signing_key" required style="width: auto;">
+                        <option value="">-- Key --</option>
+                        {% for key in signing_keys %}
+                        <option value="{{ key.key_id }}">{{ key.fingerprint }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="password" name="password" placeholder="Password" style="width: 120px;">
+                    <button type="submit" class="btn btn-small">Move Here</button>
+                </div>
+            </div>
+        </form>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    <div style="margin-top: 1em; display: flex; justify-content: center; gap: 10px;">
+        {% if let Some(prev) = prev_cursor %}
+        <a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}/move?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>
+        {% else %}
+        {% if current_cursor.is_some() %}
+        <a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}/move" class="btn btn-small">&larr; First</a>
+        {% endif %}
+        {% endif %}
+        {% if has_more %}
+        {% if let Some(cursor) = next_cursor %}
+        <a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}/move?cursor={{ cursor }}&prev={{ current_cursor.as_deref().unwrap_or_default() }}" class="btn btn-small">Next &rarr;</a>
+        {% endif %}
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<p><a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}" class="btn">&larr; Back to Thread</a></p>
+{% endblock %}

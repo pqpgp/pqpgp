@@ -7,8 +7,9 @@ use crate::csrf::{get_csrf_token, validate_csrf_token, CsrfProtectedForm};
 use crate::templates::{
     BoardDisplayInfo, BoardViewTemplate, ConversationInfo, EncryptionIdentityInfo,
     ForumDisplayInfo, ForumListTemplate, ForumViewTemplate, ModeratorDisplayInfo,
-    PMComposeTemplate, PMConversationTemplate, PMInboxTemplate, PMRecipientInfo, PostDisplayInfo,
-    PrivateMessageInfo, SigningKeyInfo, ThreadDisplayInfo, ThreadViewTemplate,
+    MoveThreadTemplate, PMComposeTemplate, PMConversationTemplate, PMInboxTemplate,
+    PMRecipientInfo, PostDisplayInfo, PrivateMessageInfo, SigningKeyInfo, ThreadDisplayInfo,
+    ThreadViewTemplate,
 };
 use crate::AppState;
 use crate::SharedForumPersistence;
@@ -111,29 +112,6 @@ fn build_board_display_info_from_summary(summary: &pqpgp::forum::BoardSummary) -
         tags: summary.board.tags().to_vec(),
         created_at_display: format_timestamp(summary.board.created_at()),
         thread_count: summary.thread_count,
-    }
-}
-
-/// Builds a BoardDisplayInfo with edits applied (for single board lookups).
-/// Note: thread_count is set to 0 since this is used for single board lookups
-/// where we don't need to display thread counts (e.g., move thread dropdown).
-fn build_board_display_info(
-    persistence: &SharedForumPersistence,
-    forum_hash: &ContentHash,
-    board: &BoardGenesis,
-) -> BoardDisplayInfo {
-    let (name, description) = persistence
-        .apply_board_edits(forum_hash, board)
-        .unwrap_or_else(|_| Some((board.name().to_string(), board.description().to_string())))
-        .unwrap_or_else(|| (board.name().to_string(), board.description().to_string()));
-
-    BoardDisplayInfo {
-        hash: board.hash().to_hex(),
-        name,
-        description,
-        tags: board.tags().to_vec(),
-        created_at_display: format_timestamp(board.created_at()),
-        thread_count: 0, // Not needed for single board lookups
     }
 }
 
@@ -1583,23 +1561,6 @@ pub async fn thread_view_page(
         .iter()
         .any(|mod_fp| user_fingerprints.iter().any(|fp| *fp == mod_fp));
 
-    // Load all boards for the move thread dropdown
-    let all_boards_data = app_state
-        .forum_persistence
-        .get_boards(&forum_content_hash)
-        .unwrap_or_default();
-
-    let hidden_boards = app_state
-        .forum_persistence
-        .get_hidden_boards(&forum_content_hash)
-        .unwrap_or_default();
-
-    let all_boards: Vec<BoardDisplayInfo> = all_boards_data
-        .into_iter()
-        .filter(|b| !hidden_boards.contains(b.hash()))
-        .map(|b| build_board_display_info(&app_state.forum_persistence, &forum_content_hash, &b))
-        .collect();
-
     // Get effective board name (after applying any edits)
     let (board_name, _) = app_state
         .forum_persistence
@@ -1634,7 +1595,6 @@ pub async fn thread_view_page(
         posts: post_displays,
         signing_keys,
         is_moderator,
-        all_boards,
         result: None,
         error: None,
         has_result: false,
@@ -2438,7 +2398,166 @@ pub async fn remove_board_moderator_handler(
     Redirect::to(&format!("/forum/{}/board/{}", forum_hash, board_hash)).into_response()
 }
 
-/// Move thread to a different board handler
+/// Move thread page handler - shows paginated board selection for moving a thread.
+pub async fn move_thread_page_handler(
+    State(app_state): State<AppState>,
+    session: Session,
+    Path((forum_hash, thread_hash)): Path<(String, String)>,
+    Query(pagination): Query<PaginationQuery>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .map_err(|e| (e, "Failed to get CSRF token".to_string()))?;
+
+    // Parse forum hash
+    let forum_content_hash = ContentHash::from_hex(&forum_hash).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid forum hash: {}", forum_hash),
+        )
+    })?;
+
+    // Parse thread hash
+    let thread_content_hash = ContentHash::from_hex(&thread_hash).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid thread hash: {}", thread_hash),
+        )
+    })?;
+
+    // Get forum metadata
+    let forum_metadata = match app_state
+        .forum_persistence
+        .load_forum_metadata(&forum_content_hash)
+    {
+        Ok(Some(m)) => m,
+        Ok(None) => return Err((StatusCode::NOT_FOUND, "Forum not found".to_string())),
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    };
+
+    // Get thread
+    let thread = app_state
+        .forum_persistence
+        .get_thread(&forum_content_hash, &thread_content_hash)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Thread not found".to_string()))?;
+
+    // Get the current board for this thread
+    let board_hash = thread.board_hash();
+    let board = app_state
+        .forum_persistence
+        .get_board(&forum_content_hash, board_hash)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Board not found".to_string()))?;
+
+    // Check if user is a forum moderator (required for moving threads)
+    let signing_keys = get_signing_keys();
+    let user_fingerprints: Vec<&str> = signing_keys
+        .iter()
+        .map(|k| k.fingerprint.as_str())
+        .collect();
+
+    // Load forum moderators from local storage
+    let (forum_mod_fingerprints, _owner_fingerprint) = app_state
+        .forum_persistence
+        .get_forum_moderators(&forum_content_hash)
+        .unwrap_or_default();
+
+    let is_moderator = forum_mod_fingerprints
+        .iter()
+        .any(|mod_fp| user_fingerprints.iter().any(|fp| *fp == mod_fp));
+
+    if !is_moderator {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only moderators can move threads".to_string(),
+        ));
+    }
+
+    // Get paginated boards (excluding current board and hidden boards)
+    let cursor = pagination.get_cursor();
+    let limit = pagination.get_limit();
+
+    let hidden_boards = app_state
+        .forum_persistence
+        .get_hidden_boards(&forum_content_hash)
+        .unwrap_or_default();
+
+    let paginated_result = app_state
+        .forum_persistence
+        .get_boards_paginated(&forum_content_hash, cursor.as_ref(), limit + 1)
+        .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
+            items: Vec::new(),
+            next_cursor: None,
+            total_count: None,
+        });
+
+    // Filter out current board and hidden boards, and check if there's more
+    let filtered: Vec<_> = paginated_result
+        .items
+        .into_iter()
+        .filter(|b| *b.board.hash() != *board_hash && !hidden_boards.contains(b.board.hash()))
+        .collect();
+
+    let has_more = filtered.len() > limit;
+    let boards: Vec<BoardDisplayInfo> = filtered
+        .into_iter()
+        .take(limit)
+        .map(|s| build_board_display_info_from_summary(&s))
+        .collect();
+
+    // Get next cursor from the last item we're showing
+    let next_cursor_str = if has_more {
+        paginated_result.next_cursor.map(|c| c.encode())
+    } else {
+        None
+    };
+
+    let total_boards = paginated_result.total_count.unwrap_or(0);
+
+    // Get effective names
+    let (forum_name, _) = get_effective_forum_info(
+        &app_state.forum_persistence,
+        &forum_content_hash,
+        &forum_metadata.name,
+        &forum_metadata.description,
+    );
+
+    let (board_name, _) = app_state
+        .forum_persistence
+        .apply_board_edits(&forum_content_hash, &board)
+        .unwrap_or_else(|_| Some((board.name().to_string(), board.description().to_string())))
+        .unwrap_or_else(|| (board.name().to_string(), board.description().to_string()));
+
+    let prev_cursor = pagination.prev.clone();
+    let current_cursor = pagination.cursor.clone();
+
+    let template = MoveThreadTemplate {
+        active_page: "forum".to_string(),
+        csrf_token,
+        forum_hash: forum_hash.clone(),
+        forum_name,
+        board_hash: board.hash().to_hex(),
+        board_name,
+        thread_hash: thread_hash.clone(),
+        thread_title: thread.title().to_string(),
+        boards,
+        signing_keys,
+        result: None,
+        error: None,
+        has_result: false,
+        has_error: false,
+        prev_cursor,
+        next_cursor: next_cursor_str,
+        current_cursor,
+        total_boards,
+        has_more,
+    };
+
+    Ok(Html(template.to_string()))
+}
+
+/// Move thread to a different board handler (POST)
 pub async fn move_thread_handler(
     State(app_state): State<AppState>,
     session: Session,

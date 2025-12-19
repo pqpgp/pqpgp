@@ -345,7 +345,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/forum/:forum_hash/thread/:thread_hash/move",
-            post(handlers::forum::move_thread_handler),
+            get(handlers::forum::move_thread_page_handler)
+                .post(handlers::forum::move_thread_handler),
         )
         .route(
             "/forum/:forum_hash/edit",
