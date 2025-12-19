@@ -60,6 +60,11 @@ pub const MAX_FETCH_BATCH_SIZE: usize = 1000;
 /// Maximum number of missing hashes returned in a sync response.
 pub const MAX_SYNC_MISSING_HASHES: usize = 10000;
 
+/// Maximum number of known_heads allowed in a sync request.
+/// This prevents excessively large requests that could exceed body limits.
+/// If a client has more heads, it should send multiple requests or use pagination.
+pub const MAX_SYNC_KNOWN_HEADS: usize = 10000;
+
 /// Maximum nodes returned in a single export page.
 pub const MAX_EXPORT_PAGE_SIZE: usize = 1000;
 

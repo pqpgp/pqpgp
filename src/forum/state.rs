@@ -4,6 +4,15 @@
 //! and permissions. It can be used by relays for serving forums or by clients
 //! for local caching.
 //!
+//! ## Indexing Strategy
+//!
+//! For efficient queries, the state maintains secondary indexes:
+//! - `boards`: All board hashes for O(1) board listing
+//! - `board_threads`: Board hash → thread hashes for O(1) thread listing per board
+//! - `thread_posts`: Thread hash → post hashes for O(1) post listing per thread
+//!
+//! These indexes are automatically maintained when nodes are added.
+//!
 //! For persistent storage, see the `storage` module.
 
 use crate::forum::dag_ops::nodes_in_topological_order;
@@ -13,6 +22,10 @@ use crate::forum::{
 use std::collections::{HashMap, HashSet};
 
 /// In-memory state for a single forum.
+///
+/// This struct maintains both primary storage (the `nodes` HashMap) and secondary
+/// indexes for efficient content retrieval. All indexes are automatically updated
+/// when nodes are added via `add_node()`.
 #[derive(Debug, Default)]
 pub struct ForumState {
     /// All nodes in this forum's DAG, keyed by content hash.
@@ -27,6 +40,28 @@ pub struct ForumState {
     pub description: String,
     /// Creation timestamp.
     pub created_at: u64,
+
+    // ==========================================================================
+    // Secondary Indexes for O(1) Content Retrieval
+    // ==========================================================================
+    /// All board hashes in this forum, ordered by creation time.
+    /// Enables O(1) board listing instead of O(n) filtering.
+    boards: Vec<ContentHash>,
+
+    /// Maps board hash → thread hashes in that board.
+    /// Enables O(1) thread listing per board instead of O(n) filtering.
+    /// Note: Threads are stored under their *original* board. Use permissions
+    /// to check for moved threads when rendering.
+    board_threads: HashMap<ContentHash, Vec<ContentHash>>,
+
+    /// Maps thread hash → post hashes in that thread.
+    /// Enables O(1) post listing per thread instead of O(n) filtering.
+    thread_posts: HashMap<ContentHash, Vec<ContentHash>>,
+
+    /// Pre-computed topological order of all nodes.
+    /// Lazily rebuilt when needed (None = needs rebuild).
+    /// Enables O(k) pagination for export instead of O(n log n) per request.
+    topological_cache: Option<Vec<ContentHash>>,
 }
 
 impl ForumState {
@@ -48,12 +83,18 @@ impl ForumState {
             name: genesis.name().to_string(),
             description: genesis.description().to_string(),
             created_at: genesis.created_at(),
+            // Initialize empty secondary indexes
+            boards: Vec::new(),
+            board_threads: HashMap::new(),
+            thread_posts: HashMap::new(),
+            topological_cache: Some(vec![hash]), // Genesis is the only node
         }
     }
 
     /// Adds a node to the forum state.
     ///
     /// Returns true if the node was new, false if it already existed.
+    /// Automatically updates all secondary indexes for O(1) content retrieval.
     pub fn add_node(&mut self, node: DagNode) -> bool {
         let hash = *node.hash();
 
@@ -77,9 +118,50 @@ impl ForumState {
             }
         }
 
+        // Update secondary indexes based on node type
+        self.update_indexes_for_node(&node);
+
+        // Invalidate topological cache since we added a new node
+        self.topological_cache = None;
+
         // Store the node
         self.nodes.insert(hash, node);
         true
+    }
+
+    /// Updates secondary indexes when a new node is added.
+    ///
+    /// This method maintains O(1) insertion into indexes while enabling
+    /// O(1) lookup for common queries like "get all threads in board".
+    fn update_indexes_for_node(&mut self, node: &DagNode) {
+        let hash = *node.hash();
+
+        match node {
+            DagNode::BoardGenesis(_) => {
+                // Add board to the boards index
+                self.boards.push(hash);
+                // Initialize empty thread list for this board
+                self.board_threads.entry(hash).or_default();
+            }
+            DagNode::ThreadRoot(thread) => {
+                // Add thread to its board's thread list
+                let board_hash = *thread.board_hash();
+                self.board_threads.entry(board_hash).or_default().push(hash);
+                // Initialize empty post list for this thread
+                self.thread_posts.entry(hash).or_default();
+            }
+            DagNode::Post(post) => {
+                // Add post to its thread's post list
+                let thread_hash = *post.thread_hash();
+                self.thread_posts.entry(thread_hash).or_default().push(hash);
+            }
+            // Other node types don't need indexing
+            DagNode::ForumGenesis(_)
+            | DagNode::ModAction(_)
+            | DagNode::Edit(_)
+            | DagNode::EncryptionIdentity(_)
+            | DagNode::SealedPrivateMessage(_) => {}
+        }
     }
 
     /// Returns the number of nodes in this forum.
@@ -102,12 +184,28 @@ impl ForumState {
         self.nodes.iter()
     }
 
-    /// Rebuilds permissions from scratch by replaying all nodes.
+    /// Rebuilds permissions and secondary indexes from scratch by replaying all nodes.
+    ///
+    /// This is called during forum loading to ensure indexes are consistent with
+    /// the loaded nodes. It replays all nodes in topological order.
     pub fn rebuild_permissions(&mut self) {
         let mut builder = PermissionBuilder::new();
 
-        for node in nodes_in_topological_order(&self.nodes) {
+        // Clear and rebuild secondary indexes
+        self.boards.clear();
+        self.board_threads.clear();
+        self.thread_posts.clear();
+
+        // Collect nodes in topological order first to avoid borrow conflict
+        let ordered_nodes: Vec<DagNode> = nodes_in_topological_order(&self.nodes)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        for node in &ordered_nodes {
             let _ = builder.process_node(node);
+            // Rebuild secondary indexes
+            self.update_indexes_for_node(node);
         }
 
         if let Some(hash) = self.nodes.values().find_map(|n| {
@@ -119,6 +217,147 @@ impl ForumState {
         }) {
             self.permissions = builder.into_permissions().remove(&hash);
         }
+
+        // Invalidate topological cache to force rebuild on next access
+        self.topological_cache = None;
+    }
+
+    // ==========================================================================
+    // Secondary Index Query Methods - O(1) Content Retrieval
+    // ==========================================================================
+
+    /// Returns all board hashes in this forum.
+    ///
+    /// Boards are returned in the order they were created.
+    /// Complexity: O(1) - returns reference to pre-built index.
+    ///
+    /// # Example
+    /// ```ignore
+    /// for board_hash in forum.get_boards() {
+    ///     let board = forum.get_node(board_hash);
+    /// }
+    /// ```
+    #[inline]
+    pub fn get_boards(&self) -> &[ContentHash] {
+        &self.boards
+    }
+
+    /// Returns the number of boards in this forum.
+    ///
+    /// Complexity: O(1).
+    #[inline]
+    pub fn board_count(&self) -> usize {
+        self.boards.len()
+    }
+
+    /// Returns all thread hashes in a specific board.
+    ///
+    /// Returns threads under their *original* board assignment. To get the
+    /// effective board for a thread (considering moves), use
+    /// `get_effective_board_for_thread()`.
+    ///
+    /// Complexity: O(1) - returns reference to pre-built index.
+    ///
+    /// # Arguments
+    /// * `board_hash` - The hash of the board to query
+    ///
+    /// # Returns
+    /// Slice of thread hashes, or empty slice if board doesn't exist or has no threads.
+    #[inline]
+    pub fn get_threads_in_board(&self, board_hash: &ContentHash) -> &[ContentHash] {
+        self.board_threads
+            .get(board_hash)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Returns the number of threads in a specific board.
+    ///
+    /// Complexity: O(1).
+    #[inline]
+    pub fn thread_count_in_board(&self, board_hash: &ContentHash) -> usize {
+        self.board_threads
+            .get(board_hash)
+            .map(Vec::len)
+            .unwrap_or(0)
+    }
+
+    /// Returns all post hashes in a specific thread.
+    ///
+    /// Posts are returned in the order they were added to the forum.
+    /// Complexity: O(1) - returns reference to pre-built index.
+    ///
+    /// # Arguments
+    /// * `thread_hash` - The hash of the thread to query
+    ///
+    /// # Returns
+    /// Slice of post hashes, or empty slice if thread doesn't exist or has no posts.
+    #[inline]
+    pub fn get_posts_in_thread(&self, thread_hash: &ContentHash) -> &[ContentHash] {
+        self.thread_posts
+            .get(thread_hash)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Returns the number of posts in a specific thread.
+    ///
+    /// Complexity: O(1).
+    #[inline]
+    pub fn post_count_in_thread(&self, thread_hash: &ContentHash) -> usize {
+        self.thread_posts
+            .get(thread_hash)
+            .map(Vec::len)
+            .unwrap_or(0)
+    }
+
+    /// Returns nodes in topological order, using cached result when available.
+    ///
+    /// This method lazily computes and caches the topological order. The cache
+    /// is invalidated when nodes are added.
+    ///
+    /// Complexity: O(1) if cached, O(n log n) on cache miss.
+    pub fn get_topological_order(&mut self) -> &[ContentHash] {
+        if self.topological_cache.is_none() {
+            let ordered: Vec<ContentHash> = nodes_in_topological_order(&self.nodes)
+                .into_iter()
+                .map(|n| *n.hash())
+                .collect();
+            self.topological_cache = Some(ordered);
+        }
+        self.topological_cache.as_ref().unwrap()
+    }
+
+    /// Returns a paginated slice of nodes in topological order.
+    ///
+    /// This is more efficient than computing the full topological order
+    /// when only a subset of nodes is needed.
+    ///
+    /// # Arguments
+    /// * `skip` - Number of nodes to skip
+    /// * `take` - Maximum number of nodes to return
+    ///
+    /// # Returns
+    /// Vector of node hashes in topological order for the requested page.
+    pub fn get_topological_page(&mut self, skip: usize, take: usize) -> Vec<ContentHash> {
+        // Ensure cache is populated
+        if self.topological_cache.is_none() {
+            let ordered: Vec<ContentHash> = nodes_in_topological_order(&self.nodes)
+                .into_iter()
+                .map(|n| *n.hash())
+                .collect();
+            self.topological_cache = Some(ordered);
+        }
+
+        // Return the paginated slice of hashes
+        self.topological_cache
+            .as_ref()
+            .unwrap()
+            .iter()
+            .skip(skip)
+            .take(take)
+            .copied()
+            .collect()
     }
 
     /// Returns the effective board hash for a thread, considering any moves.
@@ -726,5 +965,333 @@ mod tests {
             Some(*board2.hash())
         );
         assert_eq!(state.get_effective_board(post.hash()), Some(*board2.hash()));
+    }
+
+    // ==========================================================================
+    // Secondary Index Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_secondary_index_boards() {
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Initially no boards
+        assert_eq!(state.get_boards().len(), 0);
+        assert_eq!(state.board_count(), 0);
+
+        // Create first board
+        let board1 = BoardGenesis::create(
+            *genesis.hash(),
+            "Board 1".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board1.clone()));
+
+        assert_eq!(state.get_boards().len(), 1);
+        assert_eq!(state.board_count(), 1);
+        assert_eq!(state.get_boards()[0], *board1.hash());
+
+        // Create second board
+        let board2 = BoardGenesis::create(
+            *genesis.hash(),
+            "Board 2".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board2.clone()));
+
+        assert_eq!(state.get_boards().len(), 2);
+        assert_eq!(state.board_count(), 2);
+        assert!(state.get_boards().contains(board1.hash()));
+        assert!(state.get_boards().contains(board2.hash()));
+    }
+
+    #[test]
+    fn test_secondary_index_threads_in_board() {
+        use crate::forum::ThreadRoot;
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create a board
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        // Initially no threads
+        assert_eq!(state.get_threads_in_board(board.hash()).len(), 0);
+        assert_eq!(state.thread_count_in_board(board.hash()), 0);
+
+        // Create first thread
+        let thread1 = ThreadRoot::create(
+            *board.hash(),
+            "Thread 1".to_string(),
+            "Body 1".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread1.clone()));
+
+        assert_eq!(state.get_threads_in_board(board.hash()).len(), 1);
+        assert_eq!(state.thread_count_in_board(board.hash()), 1);
+        assert_eq!(state.get_threads_in_board(board.hash())[0], *thread1.hash());
+
+        // Create second thread
+        let thread2 = ThreadRoot::create(
+            *board.hash(),
+            "Thread 2".to_string(),
+            "Body 2".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread2.clone()));
+
+        assert_eq!(state.get_threads_in_board(board.hash()).len(), 2);
+        assert_eq!(state.thread_count_in_board(board.hash()), 2);
+        assert!(state
+            .get_threads_in_board(board.hash())
+            .contains(thread1.hash()));
+        assert!(state
+            .get_threads_in_board(board.hash())
+            .contains(thread2.hash()));
+    }
+
+    #[test]
+    fn test_secondary_index_posts_in_thread() {
+        use crate::forum::{Post, ThreadRoot};
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create a board
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        // Create a thread
+        let thread = ThreadRoot::create(
+            *board.hash(),
+            "Test Thread".to_string(),
+            "Body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        // Initially no posts
+        assert_eq!(state.get_posts_in_thread(thread.hash()).len(), 0);
+        assert_eq!(state.post_count_in_thread(thread.hash()), 0);
+
+        // Create first post
+        let post1 = Post::create(
+            *thread.hash(),
+            vec![*thread.hash()],
+            "Post 1".to_string(),
+            None,
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(post1.clone()));
+
+        assert_eq!(state.get_posts_in_thread(thread.hash()).len(), 1);
+        assert_eq!(state.post_count_in_thread(thread.hash()), 1);
+        assert_eq!(state.get_posts_in_thread(thread.hash())[0], *post1.hash());
+
+        // Create second post
+        let post2 = Post::create(
+            *thread.hash(),
+            vec![*post1.hash()],
+            "Post 2".to_string(),
+            None,
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(post2.clone()));
+
+        assert_eq!(state.get_posts_in_thread(thread.hash()).len(), 2);
+        assert_eq!(state.post_count_in_thread(thread.hash()), 2);
+        assert!(state
+            .get_posts_in_thread(thread.hash())
+            .contains(post1.hash()));
+        assert!(state
+            .get_posts_in_thread(thread.hash())
+            .contains(post2.hash()));
+    }
+
+    #[test]
+    fn test_secondary_index_nonexistent_lookups() {
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+        let state = ForumState::from_genesis(&genesis);
+
+        let fake_hash = ContentHash::from_bytes([0u8; 64]);
+
+        // Lookups on non-existent entities should return empty slices
+        assert_eq!(state.get_threads_in_board(&fake_hash).len(), 0);
+        assert_eq!(state.thread_count_in_board(&fake_hash), 0);
+        assert_eq!(state.get_posts_in_thread(&fake_hash).len(), 0);
+        assert_eq!(state.post_count_in_thread(&fake_hash), 0);
+    }
+
+    #[test]
+    fn test_topological_cache() {
+        use crate::forum::ThreadRoot;
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Create a board
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        // Create a thread
+        let thread = ThreadRoot::create(
+            *board.hash(),
+            "Test Thread".to_string(),
+            "Body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        // Get topological order - should build cache
+        let order = state.get_topological_order();
+        assert_eq!(order.len(), 3); // genesis, board, thread
+
+        // Verify order: genesis first, then board, then thread
+        assert_eq!(order[0], *genesis.hash());
+        assert_eq!(order[1], *board.hash());
+        assert_eq!(order[2], *thread.hash());
+
+        // Test pagination
+        let page = state.get_topological_page(0, 2);
+        assert_eq!(page.len(), 2);
+
+        let page = state.get_topological_page(1, 2);
+        assert_eq!(page.len(), 2);
+
+        let page = state.get_topological_page(2, 2);
+        assert_eq!(page.len(), 1);
+    }
+
+    #[test]
+    fn test_rebuild_permissions_rebuilds_indexes() {
+        use crate::forum::{Post, ThreadRoot};
+
+        let keypair = create_test_keypair();
+        let genesis = create_test_forum(&keypair);
+
+        let mut state = ForumState::from_genesis(&genesis);
+
+        // Add content
+        let board = BoardGenesis::create(
+            *genesis.hash(),
+            "Test Board".to_string(),
+            "".to_string(),
+            vec![],
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(board.clone()));
+
+        let thread = ThreadRoot::create(
+            *board.hash(),
+            "Test Thread".to_string(),
+            "Body".to_string(),
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(thread.clone()));
+
+        let post = Post::create(
+            *thread.hash(),
+            vec![*thread.hash()],
+            "Test post".to_string(),
+            None,
+            keypair.public_key(),
+            keypair.private_key(),
+            None,
+        )
+        .unwrap();
+        state.add_node(DagNode::from(post.clone()));
+
+        // Verify indexes are populated
+        assert_eq!(state.board_count(), 1);
+        assert_eq!(state.thread_count_in_board(board.hash()), 1);
+        assert_eq!(state.post_count_in_thread(thread.hash()), 1);
+
+        // Rebuild permissions (which also rebuilds indexes)
+        state.rebuild_permissions();
+
+        // Verify indexes are still correct after rebuild
+        assert_eq!(state.board_count(), 1);
+        assert_eq!(state.thread_count_in_board(board.hash()), 1);
+        assert_eq!(state.post_count_in_thread(thread.hash()), 1);
+        assert!(state.get_boards().contains(board.hash()));
+        assert!(state
+            .get_threads_in_board(board.hash())
+            .contains(thread.hash()));
+        assert!(state
+            .get_posts_in_thread(thread.hash())
+            .contains(post.hash()));
     }
 }

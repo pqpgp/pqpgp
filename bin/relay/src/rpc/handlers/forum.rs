@@ -107,27 +107,32 @@ pub fn handle_fetch(state: &SharedForumState, params: Value) -> Result<Value, Rp
 
     let relay = acquire_forum_read(state);
 
-    // Build a temporary index for O(1) lookups instead of O(n*m) nested iteration
-    let node_index: HashMap<&ContentHash, &DagNode> = relay
-        .forums()
-        .values()
-        .flat_map(|forum| forum.nodes.iter())
-        .collect();
-
+    // Search for nodes directly in each forum's HashMap.
+    // This is O(h * f) where h = requested hashes and f = number of forums.
+    // Much more efficient than building a global index O(total_nodes) per request.
     let mut nodes = Vec::with_capacity(unique_hashes.len());
     let mut not_found = Vec::new();
 
     for hash in unique_hashes {
-        if let Some(node) = node_index.get(&hash) {
-            if let Ok(data) = node.to_bytes() {
-                nodes.push(NodeData {
-                    hash: hash.to_hex(),
-                    data: base64::engine::general_purpose::STANDARD.encode(&data),
-                });
-            } else {
-                not_found.push(hash.to_hex());
+        let mut found = false;
+
+        // Search each forum for this hash
+        // Typically a fetch request targets nodes from a single forum,
+        // so we'll usually find it in the first forum we check.
+        for forum in relay.forums().values() {
+            if let Some(node) = forum.nodes.get(&hash) {
+                if let Ok(data) = node.to_bytes() {
+                    nodes.push(NodeData {
+                        hash: hash.to_hex(),
+                        data: base64::engine::general_purpose::STANDARD.encode(&data),
+                    });
+                    found = true;
+                    break;
+                }
             }
-        } else {
+        }
+
+        if !found {
             not_found.push(hash.to_hex());
         }
     }

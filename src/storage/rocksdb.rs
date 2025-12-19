@@ -17,7 +17,7 @@ use rocksdb::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, trace, warn};
 
 // =============================================================================
 // RocksDB Configuration
@@ -159,6 +159,13 @@ impl RocksDbHandle {
         let bytes = bincode::serialize(value)
             .map_err(|e| PqpgpError::serialization(format!("Failed to serialize: {}", e)))?;
 
+        trace!(
+            cf = cf_name,
+            key_len = key.len(),
+            value_bytes = bytes.len(),
+            "db_put: storing serialized value"
+        );
+
         self.db
             .put_cf(&cf, key, &bytes)
             .map_err(|e| PqpgpError::storage(format!("Failed to write: {}", e)))?;
@@ -169,6 +176,14 @@ impl RocksDbHandle {
     /// Stores raw bytes at the given key.
     pub fn put_raw(&self, cf_name: &str, key: &[u8], value: &[u8]) -> Result<()> {
         let cf = self.cf(cf_name)?;
+
+        trace!(
+            cf = cf_name,
+            key_len = key.len(),
+            value_bytes = value.len(),
+            "db_put_raw: storing raw bytes"
+        );
+
         self.db
             .put_cf(&cf, key, value)
             .map_err(|e| PqpgpError::storage(format!("Failed to write: {}", e)))?;
@@ -181,12 +196,21 @@ impl RocksDbHandle {
 
         match self.db.get_cf(&cf, key) {
             Ok(Some(bytes)) => {
+                trace!(
+                    cf = cf_name,
+                    key_len = key.len(),
+                    value_bytes = bytes.len(),
+                    "db_get: found record"
+                );
                 let value: T = bincode::deserialize(&bytes).map_err(|e| {
                     PqpgpError::serialization(format!("Failed to deserialize: {}", e))
                 })?;
                 Ok(Some(value))
             }
-            Ok(None) => Ok(None),
+            Ok(None) => {
+                trace!(cf = cf_name, key_len = key.len(), "db_get: key not found");
+                Ok(None)
+            }
             Err(e) => Err(PqpgpError::storage(format!("Failed to read: {}", e))),
         }
     }
@@ -196,8 +220,23 @@ impl RocksDbHandle {
         let cf = self.cf(cf_name)?;
 
         match self.db.get_cf(&cf, key) {
-            Ok(Some(bytes)) => Ok(Some(bytes.to_vec())),
-            Ok(None) => Ok(None),
+            Ok(Some(bytes)) => {
+                trace!(
+                    cf = cf_name,
+                    key_len = key.len(),
+                    value_bytes = bytes.len(),
+                    "db_get_raw: found record"
+                );
+                Ok(Some(bytes.to_vec()))
+            }
+            Ok(None) => {
+                trace!(
+                    cf = cf_name,
+                    key_len = key.len(),
+                    "db_get_raw: key not found"
+                );
+                Ok(None)
+            }
             Err(e) => Err(PqpgpError::storage(format!("Failed to read: {}", e))),
         }
     }
@@ -205,15 +244,28 @@ impl RocksDbHandle {
     /// Checks if a key exists.
     pub fn exists(&self, cf_name: &str, key: &[u8]) -> Result<bool> {
         let cf = self.cf(cf_name)?;
-        self.db
+        let exists = self
+            .db
             .get_cf(&cf, key)
             .map(|v| v.is_some())
-            .map_err(|e| PqpgpError::storage(format!("Failed to check key: {}", e)))
+            .map_err(|e| PqpgpError::storage(format!("Failed to check key: {}", e)))?;
+
+        trace!(
+            cf = cf_name,
+            key_len = key.len(),
+            exists = exists,
+            "db_exists: checked key existence"
+        );
+
+        Ok(exists)
     }
 
     /// Deletes a key.
     pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
         let cf = self.cf(cf_name)?;
+
+        trace!(cf = cf_name, key_len = key.len(), "db_delete: deleting key");
+
         self.db
             .delete_cf(&cf, key)
             .map_err(|e| PqpgpError::storage(format!("Failed to delete: {}", e)))?;
@@ -231,12 +283,14 @@ impl RocksDbHandle {
         let cf = self.cf(cf_name)?;
         let iter = self.db.prefix_iterator_cf(&cf, prefix);
 
+        let mut count: usize = 0;
         for item in iter {
             match item {
                 Ok((key, value)) => {
                     if !key.starts_with(prefix) {
                         break;
                     }
+                    count += 1;
                     if !callback(&key, &value) {
                         break;
                     }
@@ -246,6 +300,13 @@ impl RocksDbHandle {
                 }
             }
         }
+
+        debug!(
+            cf = cf_name,
+            prefix_len = prefix.len(),
+            records_iterated = count,
+            "db_prefix_iterate: completed iteration"
+        );
 
         Ok(())
     }
@@ -274,12 +335,14 @@ impl RocksDbHandle {
         let mut iter = self.db.raw_iterator_cf(&cf);
         iter.seek(seek_key);
 
+        let mut count: usize = 0;
         while iter.valid() {
             if let (Some(key), Some(value)) = (iter.key(), iter.value()) {
                 // Stop if we've moved past the filter prefix
                 if !key.starts_with(filter_prefix) {
                     break;
                 }
+                count += 1;
                 if !callback(key, value) {
                     break;
                 }
@@ -288,6 +351,14 @@ impl RocksDbHandle {
                 break;
             }
         }
+
+        debug!(
+            cf = cf_name,
+            seek_key_len = seek_key.len(),
+            filter_prefix_len = filter_prefix.len(),
+            records_iterated = count,
+            "db_seek_iterate: completed seek iteration"
+        );
 
         Ok(())
     }
@@ -303,14 +374,26 @@ impl RocksDbHandle {
         F: Fn(&[u8]) -> std::result::Result<T, String>,
     {
         let mut results = Vec::new();
+        let mut errors: usize = 0;
 
         self.prefix_iterate(cf_name, prefix, |_, value| {
             match deserialize(value) {
                 Ok(item) => results.push(item),
-                Err(e) => warn!("Failed to deserialize item: {}", e),
+                Err(e) => {
+                    errors += 1;
+                    warn!("Failed to deserialize item: {}", e);
+                }
             }
             true
         })?;
+
+        debug!(
+            cf = cf_name,
+            prefix_len = prefix.len(),
+            records_collected = results.len(),
+            deserialization_errors = errors,
+            "db_prefix_collect: collected records"
+        );
 
         Ok(results)
     }
@@ -340,6 +423,13 @@ impl RocksDbHandle {
             }
         }
 
+        debug!(
+            cf = cf_name,
+            prefix_len = prefix.len(),
+            records_deleted = deleted,
+            "db_prefix_delete: deleted records with prefix"
+        );
+
         Ok(deleted)
     }
 
@@ -351,9 +441,11 @@ impl RocksDbHandle {
         let cf = self.cf(cf_name)?;
         let iter = self.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
 
+        let mut count: usize = 0;
         for item in iter {
             match item {
                 Ok((key, value)) => {
+                    count += 1;
                     if !callback(&key, &value) {
                         break;
                     }
@@ -363,6 +455,12 @@ impl RocksDbHandle {
                 }
             }
         }
+
+        debug!(
+            cf = cf_name,
+            records_iterated = count,
+            "db_iterate_all: completed full iteration"
+        );
 
         Ok(())
     }

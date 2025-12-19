@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Directory name for storing chat data
 const STORAGE_DIR: &str = "pqpgp_chat_data";
 
 /// Serializable version of chat state for storage
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SerializableChatState {
     /// Serialized identity key pair
     identity: Option<Vec<u8>>,
@@ -103,9 +103,17 @@ impl ChatStorage {
             .map_err(|e| PqpgpError::config(format!("Failed to serialize user data: {}", e)))?;
 
         let file_path = self.user_file_path(&fingerprint);
-        fs::write(&file_path, file_bytes)
+        fs::write(&file_path, &file_bytes)
             .map_err(|e| PqpgpError::config(format!("Failed to write state file: {}", e)))?;
 
+        debug!(
+            fingerprint = %&fingerprint[..16],
+            contacts = serializable.contacts.len(),
+            sessions = serializable.sessions.len(),
+            messages_threads = serializable.messages.len(),
+            file_bytes = file_bytes.len(),
+            "save_state: saved encrypted chat state"
+        );
         info!("Saved chat state for {}", &fingerprint[..16]);
         Ok(())
     }
@@ -134,8 +142,16 @@ impl ChatStorage {
             .map_err(|e| PqpgpError::config(format!("Failed to deserialize state: {}", e)))?;
 
         // Convert back to ChatState
-        let state = self.serializable_to_state(serializable)?;
+        let state = self.serializable_to_state(serializable.clone())?;
 
+        debug!(
+            fingerprint = %&fingerprint[..16],
+            contacts = serializable.contacts.len(),
+            sessions = serializable.sessions.len(),
+            messages_threads = serializable.messages.len(),
+            file_bytes = file_bytes.len(),
+            "load_state: loaded encrypted chat state"
+        );
         info!("Loaded chat state for {}", &fingerprint[..16]);
         Ok(state)
     }
@@ -165,6 +181,11 @@ impl ChatStorage {
                 }
             }
         }
+
+        debug!(
+            users_found = fingerprints.len(),
+            "list_users: listed stored user fingerprints"
+        );
 
         Ok(fingerprints)
     }

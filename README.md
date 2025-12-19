@@ -13,6 +13,7 @@ A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, provi
 
 - **[Cryptography](docs/cryptography.md)** - Encryption, signatures, key management, ASCII armor
 - **[Forums](docs/forums.md)** - DAG structure, moderation, sync protocol
+- **[Indexes](docs/indexes.md)** - Storage indexes across client, relay, and web server
 - **[Private Messages](docs/private-messages.md)** - Sealed sender, X3DH, Double Ratchet
 - **[Relay Server](docs/relay.md)** - Message routing, forum hosting, peer sync
 - **[Simulator](docs/simulator.md)** - Multi-user testing environment, security attack simulation

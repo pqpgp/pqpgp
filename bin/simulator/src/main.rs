@@ -39,7 +39,7 @@ const ALICE_RELAY_PORT: u16 = 4001;
 const BOB_RELAY_PORT: u16 = 4002;
 
 /// Sync interval for peer sync (seconds)
-const SYNC_INTERVAL_SECS: u64 = 5;
+const SYNC_INTERVAL_SECS: u64 = 1;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -256,8 +256,8 @@ async fn run_alice_simulation(simulation: Arc<RwLock<Simulation>>) {
         // Drop the lock before sleeping
         drop(sim);
 
-        // Pace actions: random delay between 500ms and 2s
-        let delay_ms = fastrand::u64(500..2000);
+        // Pace actions: random delay between 50ms and 200ms (fast mode)
+        let delay_ms = fastrand::u64(50..200);
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 }
@@ -299,8 +299,8 @@ async fn run_bob_simulation(simulation: Arc<RwLock<Simulation>>) {
         // Drop the lock before sleeping
         drop(sim);
 
-        // Pace actions: random delay between 500ms and 2s
-        let delay_ms = fastrand::u64(500..2000);
+        // Pace actions: random delay between 50ms and 200ms (fast mode)
+        let delay_ms = fastrand::u64(50..200);
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 }
@@ -344,8 +344,8 @@ async fn run_malicious_simulation(simulation: Arc<RwLock<Simulation>>) {
             }
         }
 
-        // Pace attacks: random delay between 2s and 5s
-        let delay_ms = fastrand::u64(2000..5000);
+        // Pace attacks: random delay between 200ms and 500ms (fast mode)
+        let delay_ms = fastrand::u64(200..500);
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 }

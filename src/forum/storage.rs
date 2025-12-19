@@ -44,7 +44,7 @@ use crate::storage::{composite_key, RocksDbConfig, RocksDbHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Default data directory name.
 const DEFAULT_DATA_DIR: &str = "pqpgp_forum_data";
@@ -77,6 +77,7 @@ const CF_IDX_THREAD_COUNTS: &str = "idx_thread_counts"; // forum_hash + board_ha
 
 // Mod action derived state indexes (Issues #2, #3, #4)
 const CF_IDX_MOVED_THREADS: &str = "idx_moved_threads"; // forum_hash + thread_hash -> board_hash (current location)
+const CF_IDX_MOVED_IN_THREADS: &str = "idx_moved_in_threads"; // forum_hash + dest_board + inverted_ts + thread_hash -> () (for pagination)
 const CF_IDX_HIDDEN_THREADS: &str = "idx_hidden_threads"; // forum_hash + thread_hash -> () (presence = hidden)
 const CF_IDX_HIDDEN_POSTS: &str = "idx_hidden_posts"; // forum_hash + post_hash -> () (presence = hidden)
 const CF_IDX_HIDDEN_BOARDS: &str = "idx_hidden_boards"; // forum_hash + board_hash -> () (presence = hidden)
@@ -251,6 +252,7 @@ impl ForumStorage {
             CF_IDX_THREAD_COUNTS,
             // Mod action derived state
             CF_IDX_MOVED_THREADS,
+            CF_IDX_MOVED_IN_THREADS,
             CF_IDX_HIDDEN_THREADS,
             CF_IDX_HIDDEN_POSTS,
             CF_IDX_HIDDEN_BOARDS,
@@ -804,6 +806,32 @@ impl ForumStorage {
         key
     }
 
+    /// Creates a key for moved-in thread index: forum_hash + board_hash + inverted_ts + thread_hash (200 bytes).
+    ///
+    /// This enables efficient paginated queries for threads moved to a specific board,
+    /// sorted by the thread's original creation time.
+    fn moved_in_thread_key(
+        forum_hash: &ContentHash,
+        dest_board_hash: &ContentHash,
+        thread_created_at: u64,
+        thread_hash: &ContentHash,
+    ) -> Vec<u8> {
+        let mut key = Vec::with_capacity(200);
+        key.extend_from_slice(forum_hash.as_bytes());
+        key.extend_from_slice(dest_board_hash.as_bytes());
+        key.extend_from_slice(&Self::invert_timestamp(thread_created_at));
+        key.extend_from_slice(thread_hash.as_bytes());
+        key
+    }
+
+    /// Creates a prefix for moved-in threads in a specific board: forum_hash + board_hash (128 bytes).
+    fn moved_in_thread_prefix(forum_hash: &ContentHash, board_hash: &ContentHash) -> Vec<u8> {
+        let mut key = Vec::with_capacity(128);
+        key.extend_from_slice(forum_hash.as_bytes());
+        key.extend_from_slice(board_hash.as_bytes());
+        key
+    }
+
     /// Updates mod-derived indexes when a mod action is stored.
     ///
     /// This keeps the derived state indexes (hidden, moved, mods) in sync
@@ -886,16 +914,52 @@ impl ForumStorage {
                 if let (Some(thread_hash), Some(dest_board_hash)) =
                     (action.target_node_hash(), action.board_hash())
                 {
-                    let key = Self::moved_thread_key(forum_hash, thread_hash);
-                    // Store the destination board hash as the value
-                    self.db
-                        .put_raw(CF_IDX_MOVED_THREADS, &key, dest_board_hash.as_bytes())?;
+                    // Check if thread was previously moved (to remove old moved-in entry)
+                    let moved_key = Self::moved_thread_key(forum_hash, thread_hash);
+                    let previous_board = self.db.get_raw(CF_IDX_MOVED_THREADS, &moved_key)?;
 
-                    // Update thread counts: decrement source, increment destination
-                    // We need to find the original board first
+                    // Store the destination board hash as the value
+                    self.db.put_raw(
+                        CF_IDX_MOVED_THREADS,
+                        &moved_key,
+                        dest_board_hash.as_bytes(),
+                    )?;
+
+                    // Update thread counts and moved-in index
                     if let Some(thread) = self.get_thread(forum_hash, thread_hash)? {
-                        // Decrement count for original board
-                        self.decrement_thread_count(forum_hash, thread.board_hash())?;
+                        let thread_created_at = thread.created_at();
+                        let original_board = thread.board_hash();
+
+                        // Remove old moved-in entry if thread was previously moved
+                        if let Some(prev_board_bytes) = previous_board {
+                            if prev_board_bytes.len() == 64 {
+                                let prev_board =
+                                    ContentHash::from_bytes(prev_board_bytes.try_into().unwrap());
+                                let old_moved_in_key = Self::moved_in_thread_key(
+                                    forum_hash,
+                                    &prev_board,
+                                    thread_created_at,
+                                    thread_hash,
+                                );
+                                self.db.delete(CF_IDX_MOVED_IN_THREADS, &old_moved_in_key)?;
+                                // Decrement count for previous destination board
+                                self.decrement_thread_count(forum_hash, &prev_board)?;
+                            }
+                        } else {
+                            // First move: decrement count for original board
+                            self.decrement_thread_count(forum_hash, original_board)?;
+                        }
+
+                        // Add moved-in index entry for efficient pagination
+                        let moved_in_key = Self::moved_in_thread_key(
+                            forum_hash,
+                            dest_board_hash,
+                            thread_created_at,
+                            thread_hash,
+                        );
+                        self.db
+                            .put_raw(CF_IDX_MOVED_IN_THREADS, &moved_in_key, &[])?;
+
                         // Increment count for destination board
                         self.increment_thread_count(forum_hash, dest_board_hash)?;
                     }
@@ -1027,10 +1091,19 @@ impl ForumStorage {
 
     /// Loads all nodes for a forum.
     pub fn load_forum_nodes(&self, forum_hash: &ContentHash) -> Result<Vec<DagNode>> {
-        self.db
+        let nodes = self
+            .db
             .prefix_collect(CF_NODES, forum_hash.as_bytes(), |value| {
                 DagNode::from_bytes(value).map_err(|e| e.to_string())
-            })
+            })?;
+
+        debug!(
+            forum = %forum_hash.short(),
+            nodes_loaded = nodes.len(),
+            "load_forum_nodes: loaded all nodes for forum"
+        );
+
+        Ok(nodes)
     }
 
     /// Counts nodes for a forum without deserializing them.
@@ -1044,6 +1117,13 @@ impl ForumStorage {
                 count += 1;
                 true
             })?;
+
+        debug!(
+            forum = %forum_hash.short(),
+            node_count = count,
+            "count_forum_nodes: counted nodes for forum"
+        );
+
         Ok(count)
     }
 
@@ -1056,6 +1136,12 @@ impl ForumStorage {
             }
             true
         })?;
+
+        debug!(
+            total_nodes = nodes.len(),
+            "load_all_nodes: loaded all nodes from all forums"
+        );
+
         Ok(nodes)
     }
 
@@ -1146,15 +1232,64 @@ impl ForumStorage {
         self.set_heads(forum_hash, &heads)
     }
 
+    /// Recomputes the DAG heads for a forum from scratch.
+    ///
+    /// This scans all nodes and identifies true heads (nodes with no children).
+    /// Use this to fix corrupted head state, such as when heads were not properly
+    /// maintained during bulk imports.
+    ///
+    /// # Returns
+    /// The number of heads after recomputation.
+    pub fn recompute_heads(&self, forum_hash: &ContentHash) -> Result<usize> {
+        let nodes = self.load_forum_nodes(forum_hash)?;
+        if nodes.is_empty() {
+            return Ok(0);
+        }
+
+        // Collect all node hashes
+        let all_hashes: HashSet<ContentHash> = nodes.iter().map(|n| *n.hash()).collect();
+
+        // Collect all parent hashes (nodes that are referenced by other nodes)
+        let mut parent_hashes: HashSet<ContentHash> = HashSet::new();
+        for node in &nodes {
+            for parent in node.parent_hashes() {
+                parent_hashes.insert(parent);
+            }
+        }
+
+        // Heads are nodes that are NOT parents of any other node
+        let heads: HashSet<ContentHash> = all_hashes.difference(&parent_hashes).copied().collect();
+
+        let head_count = heads.len();
+        self.set_heads(forum_hash, &heads)?;
+
+        info!(
+            "Recomputed heads for forum {}: {} heads (was scanning {} nodes)",
+            forum_hash.short(),
+            head_count,
+            nodes.len()
+        );
+
+        Ok(head_count)
+    }
+
     // ========================================================================
     // Forum List Management
     // ========================================================================
 
     /// Lists all synced forum hashes.
     pub fn list_forums(&self) -> Result<Vec<ContentHash>> {
-        self.db
-            .get::<Vec<ContentHash>>(CF_META, META_FORUM_LIST)
-            .map(|opt| opt.unwrap_or_default())
+        let forums = self
+            .db
+            .get::<Vec<ContentHash>>(CF_META, META_FORUM_LIST)?
+            .unwrap_or_default();
+
+        debug!(
+            forum_count = forums.len(),
+            "list_forums: retrieved forum list"
+        );
+
+        Ok(forums)
     }
 
     /// Lists synced forums with pagination.
@@ -1243,6 +1378,13 @@ impl ForumStorage {
         } else {
             None
         };
+
+        debug!(
+            returned = items.len(),
+            total = total_count,
+            has_more = has_more,
+            "list_forums_paginated: returned forum page"
+        );
 
         Ok(PaginatedResult {
             items,
@@ -1367,6 +1509,8 @@ impl ForumStorage {
             .prefix_delete(CF_IDX_THREAD_COUNTS, forum_hash.as_bytes())?;
         self.db
             .prefix_delete(CF_IDX_MOVED_THREADS, forum_hash.as_bytes())?;
+        self.db
+            .prefix_delete(CF_IDX_MOVED_IN_THREADS, forum_hash.as_bytes())?;
         self.db
             .prefix_delete(CF_IDX_HIDDEN_THREADS, forum_hash.as_bytes())?;
         self.db
@@ -1610,6 +1754,18 @@ impl ForumStorage {
                     let key = Self::moved_thread_key(forum_hash, thread_hash);
                     self.db
                         .put_raw(CF_IDX_MOVED_THREADS, &key, dest_board_hash.as_bytes())?;
+
+                    // Also populate moved-in index for pagination
+                    if let Some(thread) = self.get_thread(forum_hash, thread_hash)? {
+                        let moved_in_key = Self::moved_in_thread_key(
+                            forum_hash,
+                            dest_board_hash,
+                            thread.created_at(),
+                            thread_hash,
+                        );
+                        self.db
+                            .put_raw(CF_IDX_MOVED_IN_THREADS, &moved_in_key, &[])?;
+                    }
                     // Note: thread counts are rebuilt separately from full scan,
                     // so we don't update them here during rebuild
                 }
@@ -1699,6 +1855,12 @@ impl ForumStorage {
             }
         }
 
+        debug!(
+            forum = %forum_hash.short(),
+            boards_returned = boards.len(),
+            "get_boards: retrieved boards for forum"
+        );
+
         Ok(boards)
     }
 
@@ -1756,6 +1918,14 @@ impl ForumStorage {
 
         // Re-sort after adding moved threads (index order may be disrupted by moved threads)
         threads.sort_by_key(|t| std::cmp::Reverse(t.created_at()));
+
+        debug!(
+            forum = %forum_hash.short(),
+            board = %board_hash.short(),
+            threads_returned = threads.len(),
+            "get_threads: retrieved threads for board"
+        );
+
         Ok(threads)
     }
 
@@ -1787,6 +1957,13 @@ impl ForumStorage {
                 posts.push(post);
             }
         }
+
+        debug!(
+            forum = %forum_hash.short(),
+            thread = %thread_hash.short(),
+            posts_returned = posts.len(),
+            "get_posts: retrieved posts for thread"
+        );
 
         Ok(posts)
     }
@@ -2003,6 +2180,14 @@ impl ForumStorage {
             None
         };
 
+        debug!(
+            forum = %forum_hash.short(),
+            returned = summaries.len(),
+            total = total_count,
+            has_more = has_more,
+            "get_boards_paginated: returned boards page"
+        );
+
         Ok(PaginatedResult {
             items: summaries,
             next_cursor,
@@ -2017,9 +2202,12 @@ impl ForumStorage {
     ///
     /// Returns `ThreadSummary` which includes post counts, avoiding N+1 queries.
     ///
-    /// This method is efficient: it uses sorted indexes and stops iteration
-    /// once enough items have been collected. Note that moved threads require
-    /// additional processing.
+    /// This method efficiently merges two sorted indexes:
+    /// 1. The primary thread index (threads originally created in this board)
+    /// 2. The moved-in thread index (threads moved to this board from elsewhere)
+    ///
+    /// Both indexes use the same key format with inverted timestamps, enabling
+    /// a merge-iteration that correctly handles moved threads across all pages.
     pub fn get_threads_paginated(
         &self,
         forum_hash: &ContentHash,
@@ -2027,10 +2215,23 @@ impl ForumStorage {
         cursor: Option<&Cursor>,
         limit: usize,
     ) -> Result<PaginatedResult<ThreadSummary>> {
-        let moved_threads = self.get_moved_threads(forum_hash)?;
-        let prefix = Self::thread_index_prefix(forum_hash, board_hash);
+        // Get total thread count from cache (O(1) instead of O(threads))
+        // The thread count cache is updated when threads are moved, so it reflects
+        // the current count for this board (including moves in, excluding moves out)
+        let count_key = Self::thread_count_key(forum_hash, board_hash);
+        let total_count = self
+            .db
+            .get_raw(CF_IDX_THREAD_COUNTS, &count_key)?
+            .map(|bytes| {
+                if bytes.len() == 8 {
+                    u64::from_be_bytes(bytes.try_into().unwrap()) as usize
+                } else {
+                    0
+                }
+            })
+            .unwrap_or(0);
 
-        // Build the seek key for iteration
+        // Build seek key based on cursor
         // Index key format: forum_hash (64) + board_hash (64) + inverted_timestamp (8) + thread_hash (64) = 200 bytes
         let seek_key = if let Some(cursor) = cursor {
             let mut key = Vec::with_capacity(200);
@@ -2049,68 +2250,85 @@ impl ForumStorage {
             }
             key_bytes.to_vec()
         } else {
-            prefix.clone()
+            Self::thread_index_prefix(forum_hash, board_hash)
         };
 
-        // Get total thread count from cache (O(1) instead of O(threads))
-        // The thread count cache is updated when threads are moved, so it reflects
-        // the current count for this board (including moves in, excluding moves out)
-        let count_key = Self::thread_count_key(forum_hash, board_hash);
-        let total_count = self
-            .db
-            .get_raw(CF_IDX_THREAD_COUNTS, &count_key)?
-            .map(|bytes| {
-                if bytes.len() == 8 {
-                    u64::from_be_bytes(bytes.try_into().unwrap()) as usize
-                } else {
-                    0
-                }
-            })
-            .unwrap_or(0);
+        // Collect thread hashes from both indexes and merge them
+        // We need to collect more than `limit` from each source to handle filtering
+        let collect_limit = limit * 2 + 1;
 
-        // Collect thread hashes starting from cursor
-        let mut thread_hashes: Vec<ContentHash> = Vec::with_capacity(limit + 1);
+        // Collect from primary thread index (threads originally in this board)
+        let prefix = Self::thread_index_prefix(forum_hash, board_hash);
+        let mut primary_threads: Vec<(u64, ContentHash)> = Vec::with_capacity(collect_limit);
         self.db
             .seek_iterate(CF_IDX_THREADS, &seek_key, &prefix, |key, _| {
                 if key.len() == 200 {
+                    let inverted_ts: [u8; 8] = key[128..136].try_into().unwrap();
+                    let timestamp = u64::MAX - u64::from_be_bytes(inverted_ts);
                     let thread_hash = ContentHash::from_bytes(key[136..200].try_into().unwrap());
-                    // Skip threads moved to another board
-                    if let Some(moved_to) = moved_threads.get(&thread_hash) {
-                        if moved_to != board_hash {
-                            return true;
-                        }
+                    // Check if this thread has been moved away from this board
+                    if !self.is_thread_moved_from(forum_hash, &thread_hash, board_hash) {
+                        primary_threads.push((timestamp, thread_hash));
                     }
-                    thread_hashes.push(thread_hash);
                 }
-                thread_hashes.len() <= limit
+                primary_threads.len() < collect_limit
             })?;
 
-        // Handle threads moved TO this board (need to merge with results)
-        // This is more complex because moved threads might interleave with existing ones
-        // For simplicity, we include moved-in threads only on the first page
-        if cursor.is_none() {
-            for (thread_hash, current_board) in &moved_threads {
-                if current_board == board_hash && !thread_hashes.contains(thread_hash) {
-                    thread_hashes.push(*thread_hash);
+        // Collect from moved-in thread index (threads moved to this board)
+        let moved_in_prefix = Self::moved_in_thread_prefix(forum_hash, board_hash);
+        let mut moved_in_threads: Vec<(u64, ContentHash)> = Vec::with_capacity(collect_limit);
+        self.db.seek_iterate(
+            CF_IDX_MOVED_IN_THREADS,
+            &seek_key,
+            &moved_in_prefix,
+            |key, _| {
+                if key.len() == 200 {
+                    let inverted_ts: [u8; 8] = key[128..136].try_into().unwrap();
+                    let timestamp = u64::MAX - u64::from_be_bytes(inverted_ts);
+                    let thread_hash = ContentHash::from_bytes(key[136..200].try_into().unwrap());
+                    moved_in_threads.push((timestamp, thread_hash));
                 }
+                moved_in_threads.len() < collect_limit
+            },
+        )?;
+
+        // Merge the two sorted streams (both sorted by timestamp descending)
+        let mut merged: Vec<(u64, ContentHash)> =
+            Vec::with_capacity(primary_threads.len() + moved_in_threads.len());
+        let mut primary_iter = primary_threads.into_iter().peekable();
+        let mut moved_iter = moved_in_threads.into_iter().peekable();
+
+        while merged.len() <= limit {
+            match (primary_iter.peek(), moved_iter.peek()) {
+                (Some((ts1, _)), Some((ts2, _))) => {
+                    // Take the newer one (higher timestamp)
+                    if ts1 >= ts2 {
+                        merged.push(primary_iter.next().unwrap());
+                    } else {
+                        merged.push(moved_iter.next().unwrap());
+                    }
+                }
+                (Some(_), None) => {
+                    merged.push(primary_iter.next().unwrap());
+                }
+                (None, Some(_)) => {
+                    merged.push(moved_iter.next().unwrap());
+                }
+                (None, None) => break,
             }
         }
 
-        let has_more = thread_hashes.len() > limit;
-        let page_hashes: Vec<_> = thread_hashes.into_iter().take(limit).collect();
+        let has_more = merged.len() > limit;
+        let page_items: Vec<_> = merged.into_iter().take(limit).collect();
 
         // Load the actual thread nodes with post counts in a single pass
-        let mut summaries = Vec::with_capacity(page_hashes.len());
-        for thread_hash in &page_hashes {
+        let mut summaries = Vec::with_capacity(page_items.len());
+        for (_, thread_hash) in &page_items {
             if let Some(thread) = self.get_thread(forum_hash, thread_hash)? {
                 let post_count = self.get_post_count(forum_hash, thread_hash).unwrap_or(0);
                 summaries.push(ThreadSummary { thread, post_count });
             }
         }
-
-        // Sort by timestamp descending (needed because moved threads might be out of order)
-        summaries.sort_by_key(|s| std::cmp::Reverse(s.thread.created_at()));
-        summaries.truncate(limit);
 
         let next_cursor = if has_more && !summaries.is_empty() {
             let last = summaries.last().unwrap();
@@ -2118,6 +2336,15 @@ impl ForumStorage {
         } else {
             None
         };
+
+        debug!(
+            forum = %forum_hash.short(),
+            board = %board_hash.short(),
+            returned = summaries.len(),
+            total = total_count,
+            has_more = has_more,
+            "get_threads_paginated: returned threads page"
+        );
 
         Ok(PaginatedResult {
             items: summaries,
@@ -2235,6 +2462,15 @@ impl ForumStorage {
         } else {
             None
         };
+
+        debug!(
+            forum = %forum_hash.short(),
+            thread = %thread_hash.short(),
+            returned = summaries.len(),
+            total = total_count,
+            has_more = has_more,
+            "get_posts_paginated: returned posts page"
+        );
 
         Ok(PaginatedResult {
             items: summaries,
@@ -2572,6 +2808,82 @@ impl ForumStorage {
             })?;
 
         Ok(hidden)
+    }
+
+    /// Checks if a specific thread is hidden using O(1) point lookup.
+    ///
+    /// Use this instead of `get_hidden_threads()` when checking a single thread
+    /// to avoid loading the entire hidden set.
+    pub fn is_thread_hidden(
+        &self,
+        forum_hash: &ContentHash,
+        thread_hash: &ContentHash,
+    ) -> Result<bool> {
+        let key = Self::hidden_content_key(forum_hash, thread_hash);
+        self.db.exists(CF_IDX_HIDDEN_THREADS, &key)
+    }
+
+    /// Checks if a specific post is hidden using O(1) point lookup.
+    ///
+    /// Use this instead of `get_hidden_posts()` when checking a single post
+    /// to avoid loading the entire hidden set.
+    pub fn is_post_hidden(
+        &self,
+        forum_hash: &ContentHash,
+        post_hash: &ContentHash,
+    ) -> Result<bool> {
+        let key = Self::hidden_content_key(forum_hash, post_hash);
+        self.db.exists(CF_IDX_HIDDEN_POSTS, &key)
+    }
+
+    /// Checks if a specific board is hidden using O(1) point lookup.
+    ///
+    /// Use this instead of `get_hidden_boards()` when checking a single board
+    /// to avoid loading the entire hidden set.
+    pub fn is_board_hidden(
+        &self,
+        forum_hash: &ContentHash,
+        board_hash: &ContentHash,
+    ) -> Result<bool> {
+        let key = Self::hidden_content_key(forum_hash, board_hash);
+        self.db.exists(CF_IDX_HIDDEN_BOARDS, &key)
+    }
+
+    /// Checks if a thread has been moved away from its original board.
+    ///
+    /// Returns true if the thread exists in the moved index AND its current
+    /// location is different from the specified board.
+    fn is_thread_moved_from(
+        &self,
+        forum_hash: &ContentHash,
+        thread_hash: &ContentHash,
+        original_board: &ContentHash,
+    ) -> bool {
+        let key = Self::moved_thread_key(forum_hash, thread_hash);
+        match self.db.get_raw(CF_IDX_MOVED_THREADS, &key) {
+            Ok(Some(bytes)) if bytes.len() == 64 => {
+                let current_board = ContentHash::from_bytes(bytes.try_into().unwrap());
+                &current_board != original_board
+            }
+            _ => false,
+        }
+    }
+
+    /// Gets the current board location for a thread if it has been moved.
+    ///
+    /// Returns `None` if the thread hasn't been moved (is still in its original board).
+    pub fn get_thread_current_board(
+        &self,
+        forum_hash: &ContentHash,
+        thread_hash: &ContentHash,
+    ) -> Result<Option<ContentHash>> {
+        let key = Self::moved_thread_key(forum_hash, thread_hash);
+        match self.db.get_raw(CF_IDX_MOVED_THREADS, &key)? {
+            Some(bytes) if bytes.len() == 64 => {
+                Ok(Some(ContentHash::from_bytes(bytes.try_into().unwrap())))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Gets map of moved threads (thread_hash -> current_board_hash) from the index.

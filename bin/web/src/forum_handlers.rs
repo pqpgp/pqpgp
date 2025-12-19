@@ -16,7 +16,7 @@ use askama::Template;
 use axum::{
     extract::{Form, Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect},
+    response::{Html, IntoResponse, Json, Redirect},
 };
 use pqpgp::cli::utils::create_keyring_manager;
 use pqpgp::crypto::Password;
@@ -4878,4 +4878,62 @@ pub async fn pm_delete_conversation(
         forum_hash_str
     ))
     .into_response()
+}
+
+// =============================================================================
+// Maintenance Handlers
+// =============================================================================
+
+/// Handler to recompute DAG heads for a forum.
+///
+/// This is useful when head tracking got corrupted (e.g., many heads when there
+/// should be few). It scans all nodes and identifies true heads (nodes with no children).
+pub async fn recompute_heads_handler(
+    State(app_state): State<AppState>,
+    Path(forum_hash_str): Path<String>,
+) -> impl IntoResponse {
+    let forum_hash = match ContentHash::from_hex(&forum_hash_str) {
+        Ok(h) => h,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Invalid forum hash" })),
+            )
+                .into_response();
+        }
+    };
+
+    let persistence = &app_state.forum_persistence;
+
+    // Get current head count for comparison
+    let old_head_count = persistence
+        .get_heads(&forum_hash)
+        .map(|h| h.len())
+        .unwrap_or(0);
+
+    match persistence.recompute_heads(&forum_hash) {
+        Ok(new_head_count) => {
+            info!(
+                "Recomputed heads for forum {}: {} -> {} heads",
+                forum_hash.short(),
+                old_head_count,
+                new_head_count
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "forum_hash": forum_hash_str,
+                    "old_head_count": old_head_count,
+                    "new_head_count": new_head_count
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Failed to recompute heads: {}", e) })),
+        )
+            .into_response(),
+    }
 }

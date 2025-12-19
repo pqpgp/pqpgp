@@ -38,8 +38,8 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            // 100 requests per 10 seconds (10 req/sec average)
-            requests_per_window: 100,
+            // 1000 requests per 10 seconds (100 req/sec average)
+            requests_per_window: 1000,
             window_duration: Duration::from_secs(10),
             // Clean up stale entries every 5 minutes
             cleanup_interval: Duration::from_secs(300),
@@ -166,8 +166,8 @@ impl RateLimitLayer {
     /// Creates a rate limit layer optimized for write operations (more restrictive).
     pub fn for_writes() -> Self {
         Self::with_config(RateLimitConfig {
-            // 50 writes per 10 seconds (5 write/sec average)
-            requests_per_window: 50,
+            // 500 writes per 10 seconds (50 write/sec average)
+            requests_per_window: 500,
             window_duration: Duration::from_secs(10),
             cleanup_interval: Duration::from_secs(300),
         })

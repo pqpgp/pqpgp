@@ -397,6 +397,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "/forum/:forum_hash/pm/conversation/:conversation_id/delete",
             post(forum_handlers::pm_delete_conversation),
         )
+        // Maintenance endpoints
+        .route(
+            "/forum/:forum_hash/recompute-heads",
+            post(forum_handlers::recompute_heads_handler),
+        )
         .nest_service("/static", ServeDir::new("src/web/static"))
         .layer(session_layer)
         // Security headers to prevent common attacks

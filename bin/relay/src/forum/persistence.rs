@@ -16,6 +16,7 @@
 //! using RocksDB's prefix seek functionality.
 
 use super::state::{ForumRelayState, ForumState};
+use pqpgp::forum::dag_ops::nodes_in_topological_order;
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{validate_node, ContentHash, DagNode, ForumGenesis, ValidationContext};
@@ -23,7 +24,7 @@ use pqpgp::storage::{composite_key, RocksDbConfig, RocksDbHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Default data directory name.
 const DATA_DIR: &str = "pqpgp_relay_data";
@@ -118,10 +119,18 @@ impl ForumPersistence {
 
     /// Loads the list of forum hashes.
     fn load_forum_list(&self) -> Result<Vec<ContentHash>, String> {
-        self.db
+        let forums = self
+            .db
             .get::<Vec<ContentHash>>(CF_META, META_FORUM_LIST)
             .map(|opt| opt.unwrap_or_default())
-            .map_err(|e| format!("Failed to read forum list: {}", e))
+            .map_err(|e| format!("Failed to read forum list: {}", e))?;
+
+        debug!(
+            forum_count = forums.len(),
+            "load_forum_list: retrieved forum list"
+        );
+
+        Ok(forums)
     }
 
     /// Loads forum metadata.
@@ -137,11 +146,20 @@ impl ForumPersistence {
 
     /// Loads all nodes for a forum.
     fn load_forum_nodes(&self, forum_hash: &ContentHash) -> Result<Vec<DagNode>, String> {
-        self.db
+        let nodes = self
+            .db
             .prefix_collect(CF_NODES, forum_hash.as_bytes(), |value| {
                 DagNode::from_bytes(value).map_err(|e| e.to_string())
             })
-            .map_err(|e| format!("Failed to load forum nodes: {}", e))
+            .map_err(|e| format!("Failed to load forum nodes: {}", e))?;
+
+        debug!(
+            forum = %forum_hash.short(),
+            nodes_loaded = nodes.len(),
+            "load_forum_nodes: loaded all nodes for forum"
+        );
+
+        Ok(nodes)
     }
 
     /// Creates a new forum with its genesis node.
@@ -251,9 +269,15 @@ impl ForumPersistence {
         // Create state from genesis
         let mut state = ForumState::from_genesis(&genesis);
 
-        // Sort nodes by created_at for proper ordering
-        let mut sorted_nodes = nodes;
-        sorted_nodes.sort_by_key(|n| n.created_at());
+        // Convert to HashMap for topological sorting
+        let nodes_map: HashMap<ContentHash, DagNode> =
+            nodes.into_iter().map(|n| (*n.hash(), n)).collect();
+
+        // Sort nodes topologically (parents before children) to ensure correct
+        // head tracking. Simple created_at sorting is insufficient when nodes
+        // share timestamps - children might be processed before parents, causing
+        // incorrect head state where parent nodes are never removed from heads.
+        let sorted_nodes = nodes_in_topological_order(&nodes_map);
 
         // Build validation context incrementally as we add nodes
         let mut validated_nodes: HashMap<ContentHash, DagNode> = HashMap::new();
@@ -277,14 +301,14 @@ impl ForumPersistence {
             let ctx = ValidationContext::new(&validated_nodes, &permissions, current_time);
 
             // Validate the node
-            match validate_node(&node, &ctx) {
+            match validate_node(node, &ctx) {
                 Ok(result) if result.is_valid => {
                     // Node is valid - add it to state and tracking
                     state.add_node(node.clone());
                     validated_nodes.insert(node_hash, node.clone());
 
                     // Update permissions if this is a mod action
-                    if let DagNode::ModAction(action) = &node {
+                    if let DagNode::ModAction(action) = node {
                         if let Some(perms) = permissions.get_mut(forum_hash) {
                             let _ = perms.apply_action(action);
                         }
