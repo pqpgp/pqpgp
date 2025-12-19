@@ -29,9 +29,14 @@ use pqpgp::forum::rpc_client::{
 use pqpgp::forum::{ContentHash, DagNode};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
+
+/// Tracks sync cursor state for incremental sync.
+/// Key: (peer_url, forum_hash) -> (cursor_timestamp, cursor_hash)
+type SyncCursors = Arc<RwLock<HashMap<(String, ContentHash), (u64, Option<ContentHash>)>>>;
 
 /// Configuration for peer relay synchronization.
 #[derive(Clone, Debug)]
@@ -112,6 +117,8 @@ impl PeerSyncConfig {
 pub struct PeerSyncClient {
     client: Client,
     config: PeerSyncConfig,
+    /// Tracks sync cursors for incremental sync per (peer, forum) pair.
+    cursors: SyncCursors,
 }
 
 impl PeerSyncClient {
@@ -122,7 +129,34 @@ impl PeerSyncClient {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self { client, config }
+        Self {
+            client,
+            config,
+            cursors: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Gets the last sync cursor for a (peer, forum) pair.
+    fn get_cursor(&self, peer_url: &str, forum_hash: &ContentHash) -> (u64, Option<ContentHash>) {
+        let key = (peer_url.to_string(), *forum_hash);
+        self.cursors
+            .read()
+            .unwrap()
+            .get(&key)
+            .cloned()
+            .unwrap_or((0, None))
+    }
+
+    /// Updates the sync cursor after successful sync.
+    fn set_cursor(
+        &self,
+        peer_url: &str,
+        forum_hash: &ContentHash,
+        timestamp: u64,
+        hash: Option<ContentHash>,
+    ) {
+        let key = (peer_url.to_string(), *forum_hash);
+        self.cursors.write().unwrap().insert(key, (timestamp, hash));
     }
 
     /// Sends an RPC request and extracts the result.
@@ -175,17 +209,21 @@ impl PeerSyncClient {
             .await
     }
 
-    /// Sends a sync request to a peer relay.
+    /// Sends a cursor-based sync request to a peer relay.
+    ///
+    /// Uses timestamp + hash cursor for efficient pagination.
     async fn sync_request(
         &self,
         peer_url: &str,
         forum_hash: ContentHash,
-        known_heads: Vec<ContentHash>,
+        cursor_timestamp: u64,
+        cursor_hash: Option<&ContentHash>,
     ) -> Result<SyncResult, String> {
         let params = SyncParams {
             forum_hash: forum_hash.to_hex(),
-            known_heads: known_heads.iter().map(|h| h.to_hex()).collect(),
-            max_results: None,
+            cursor_timestamp,
+            cursor_hash: cursor_hash.map(|h| h.to_hex()),
+            batch_size: Some(self.config.batch_size),
         };
         self.rpc_call(peer_url, "forum.sync", params).await
     }
@@ -202,7 +240,13 @@ impl PeerSyncClient {
         self.rpc_call(peer_url, "forum.fetch", params).await
     }
 
-    /// Syncs a single forum from a peer relay.
+    /// Syncs a single forum from a peer relay using cursor-based pagination.
+    ///
+    /// The sync response now includes nodes directly, eliminating the need
+    /// for separate fetch calls. We iterate through batches using the cursor
+    /// until has_more is false.
+    ///
+    /// Cursors are tracked per (peer, forum) pair to enable incremental sync.
     async fn sync_forum_from_peer(
         &self,
         peer_url: &str,
@@ -211,59 +255,44 @@ impl PeerSyncClient {
     ) -> Result<SyncStats, String> {
         let mut stats = SyncStats::default();
 
-        // Get our current heads for this forum
-        let known_heads: Vec<ContentHash> = {
-            let relay = state.read().unwrap();
-            relay
-                .get_forum(&forum_hash)
-                .map(|f| f.heads.iter().copied().collect())
-                .unwrap_or_default()
-        };
+        // Get last sync cursor for incremental sync
+        let (mut cursor_timestamp, mut cursor_hash) = self.get_cursor(peer_url, &forum_hash);
 
         debug!(
-            "Syncing forum {} from {}, we have {} heads",
+            "Syncing forum {} from {} (cursor_ts={})",
             forum_hash.short(),
             peer_url,
-            known_heads.len()
+            cursor_timestamp
         );
 
-        // Send sync request via RPC
-        let sync_resp = self.sync_request(peer_url, forum_hash, known_heads).await?;
+        loop {
+            // Send cursor-based sync request - nodes come directly in response
+            let sync_resp = self
+                .sync_request(peer_url, forum_hash, cursor_timestamp, cursor_hash.as_ref())
+                .await?;
 
-        if sync_resp.missing_hashes.is_empty() {
-            debug!(
-                "Forum {} is up to date with {}",
+            if sync_resp.nodes.is_empty() {
+                debug!(
+                    "Forum {} is up to date with {}",
+                    forum_hash.short(),
+                    peer_url
+                );
+                break;
+            }
+
+            info!(
+                "Forum {} received {} nodes from {} (has_more={})",
                 forum_hash.short(),
-                peer_url
+                sync_resp.nodes.len(),
+                peer_url,
+                sync_resp.has_more
             );
-            return Ok(stats);
-        }
 
-        // Parse missing hashes
-        let missing_hashes: Vec<ContentHash> = sync_resp
-            .missing_hashes
-            .iter()
-            .filter_map(|h| ContentHash::from_hex(h).ok())
-            .collect();
-
-        info!(
-            "Forum {} has {} missing nodes from {}",
-            forum_hash.short(),
-            missing_hashes.len(),
-            peer_url
-        );
-
-        // Fetch missing nodes in batches
-        for chunk in missing_hashes.chunks(self.config.batch_size) {
-            let fetch_resp = self.fetch_nodes(peer_url, chunk).await?;
-
-            // First pass: validate and deserialize all nodes outside the lock
-            // This prevents holding the lock during expensive operations and ensures
-            // atomic batch commits for consistency
-            let mut validated_nodes: Vec<DagNode> = Vec::with_capacity(fetch_resp.nodes.len());
+            // Validate and deserialize nodes outside the lock
+            let mut validated_nodes: Vec<DagNode> = Vec::with_capacity(sync_resp.nodes.len());
             let mut batch_rejected = 0usize;
 
-            for node_data in &fetch_resp.nodes {
+            for node_data in &sync_resp.nodes {
                 let hash = match ContentHash::from_hex(&node_data.hash) {
                     Ok(h) => h,
                     Err(_) => {
@@ -320,9 +349,7 @@ impl PeerSyncClient {
 
             stats.rejected += batch_rejected;
 
-            // Second pass: add all validated nodes atomically under a single lock
-            // This ensures clients see a consistent state - either all batch nodes
-            // are present or none are (prevents orphan references during sync)
+            // Add validated nodes atomically under a single lock
             if !validated_nodes.is_empty() {
                 let mut relay = state.write().unwrap();
                 for node in validated_nodes {
@@ -342,7 +369,22 @@ impl PeerSyncClient {
                 }
             }
 
-            stats.not_found += fetch_resp.not_found.len();
+            // Update cursor for next batch
+            cursor_timestamp = sync_resp.next_cursor_timestamp;
+            cursor_hash = sync_resp
+                .next_cursor_hash
+                .as_ref()
+                .and_then(|h| ContentHash::from_hex(h).ok());
+
+            // Stop if no more nodes
+            if !sync_resp.has_more {
+                break;
+            }
+        }
+
+        // Save cursor for incremental sync on next cycle
+        if cursor_timestamp > 0 || cursor_hash.is_some() {
+            self.set_cursor(peer_url, &forum_hash, cursor_timestamp, cursor_hash);
         }
 
         Ok(stats)

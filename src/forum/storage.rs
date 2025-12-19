@@ -102,6 +102,10 @@ const PRIVATE_CONVERSATION_MANAGER: &[u8] = b"conv_manager";
 /// Prefix for consumed OTPs in the private column family.
 const PRIVATE_CONSUMED_OTP_PREFIX: &[u8] = b"consumed_otp:";
 
+/// Prefix for sync cursors in the private column family.
+/// Key format: sync_cursor:{forum_hash} -> (timestamp, Option<hash>)
+const PRIVATE_SYNC_CURSOR_PREFIX: &[u8] = b"sync_cursor:";
+
 /// Forum metadata stored in the forums column family.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForumMetadata {
@@ -3118,6 +3122,67 @@ impl ForumStorage {
         let consumed = self.list_consumed_otps(identity_hash)?;
         let max_consumed = consumed.into_iter().max().unwrap_or(1);
         Ok(max_consumed + 1)
+    }
+
+    // =========================================================================
+    // Sync Cursor Storage
+    // =========================================================================
+
+    /// Stores a sync cursor for a forum.
+    ///
+    /// The cursor tracks the position for incremental sync from a relay.
+    /// On subsequent syncs, we can resume from this position instead of
+    /// fetching all nodes from the beginning.
+    pub fn set_sync_cursor(
+        &self,
+        forum_hash: &ContentHash,
+        timestamp: u64,
+        hash: Option<&ContentHash>,
+    ) -> Result<()> {
+        let mut key = PRIVATE_SYNC_CURSOR_PREFIX.to_vec();
+        key.extend_from_slice(forum_hash.as_bytes());
+
+        // Value: timestamp (8 bytes) + optional hash (64 bytes)
+        let mut value = timestamp.to_be_bytes().to_vec();
+        if let Some(h) = hash {
+            value.extend_from_slice(h.as_bytes());
+        }
+
+        self.db.put_raw(CF_PRIVATE, &key, &value)
+    }
+
+    /// Gets the sync cursor for a forum.
+    ///
+    /// Returns `(timestamp, Option<hash>)` if a cursor exists, or `(0, None)` otherwise.
+    pub fn get_sync_cursor(&self, forum_hash: &ContentHash) -> Result<(u64, Option<ContentHash>)> {
+        let mut key = PRIVATE_SYNC_CURSOR_PREFIX.to_vec();
+        key.extend_from_slice(forum_hash.as_bytes());
+
+        match self.db.get_raw(CF_PRIVATE, &key)? {
+            Some(value) => {
+                if value.len() < 8 {
+                    return Ok((0, None));
+                }
+                let timestamp = u64::from_be_bytes(value[..8].try_into().unwrap());
+                let hash = if value.len() >= 8 + 64 {
+                    let bytes: [u8; 64] = value[8..8 + 64].try_into().unwrap();
+                    Some(ContentHash::from_bytes(bytes))
+                } else {
+                    None
+                };
+                Ok((timestamp, hash))
+            }
+            None => Ok((0, None)),
+        }
+    }
+
+    /// Deletes the sync cursor for a forum.
+    ///
+    /// This can be used to force a full re-sync.
+    pub fn delete_sync_cursor(&self, forum_hash: &ContentHash) -> Result<()> {
+        let mut key = PRIVATE_SYNC_CURSOR_PREFIX.to_vec();
+        key.extend_from_slice(forum_hash.as_bytes());
+        self.db.delete(CF_PRIVATE, &key)
     }
 
     /// Clears all data from the database.

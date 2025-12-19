@@ -26,7 +26,7 @@ use pqpgp::forum::{
         MAX_POST_BODY_SIZE, MAX_TAGS_INPUT_SIZE, MAX_THREAD_BODY_SIZE, MAX_THREAD_TITLE_SIZE,
     },
     permissions::ForumPermissions,
-    rpc_client::{FetchResult, ForumRpcClient, RpcRequest, RpcResponse, SyncResult},
+    rpc_client::{ForumRpcClient, RpcRequest, RpcResponse, SyncResult},
     seal_private_message,
     storage::{Cursor, DEFAULT_PAGE_SIZE},
     types::current_timestamp_millis,
@@ -36,16 +36,9 @@ use pqpgp::forum::{
     ModAction, ModActionNode, Post, PrivateMessageScanner, SealedPrivateMessage, StoredMessage,
     ThreadRoot,
 };
-use std::collections::{HashMap, HashSet};
-
-// =============================================================================
-// Security Constants
-// =============================================================================
-
-/// Maximum recursion depth for sync (prevents infinite loops from malicious relays).
-const MAX_SYNC_DEPTH: usize = 100;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tower_sessions::Session;
 use tracing::{error, info, warn};
 
@@ -227,11 +220,10 @@ fn get_signing_key_fingerprint(signing_key_id: &str) -> Option<String> {
 ///
 /// This implements the full sync protocol:
 /// 1. Get local heads from storage
-/// 2. Send SyncRequest to relay with known heads
-/// 3. Receive list of missing node hashes
-/// 4. Fetch missing nodes from relay
-/// 5. Validate and store nodes locally (topological order)
-/// 6. Update local heads (only with validated, stored hashes)
+/// 2. Send cursor-based SyncRequest to relay (timestamp, hash cursor)
+/// 3. Receive nodes directly in batched responses
+/// 4. Validate and store nodes locally (topological order)
+/// 5. Update local heads from DAG structure
 ///
 /// Nodes are validated using the shared validation logic from pqpgp::forum::validation.
 /// Invalid nodes are rejected and not stored.
@@ -241,116 +233,144 @@ pub async fn sync_forum(
     persistence: &SharedForumPersistence,
     forum_hash: &ContentHash,
 ) -> Result<usize, String> {
-    sync_forum_with_depth(persistence, forum_hash, 0).await
+    sync_forum_with_cursor(persistence, forum_hash).await
 }
 
-/// Internal sync implementation with recursion depth tracking.
-async fn sync_forum_with_depth(
+/// Internal sync implementation using cursor-based pagination.
+///
+/// Cursor-based sync is more efficient than head-based sync because:
+/// - O(log n) seek on the relay using timestamp index
+/// - Fixed-size requests regardless of DAG complexity
+/// - Nodes come directly in response (no separate fetch needed)
+/// - Incremental: resumes from stored cursor position
+async fn sync_forum_with_cursor(
     persistence: &SharedForumPersistence,
     forum_hash: &ContentHash,
-    depth: usize,
 ) -> Result<usize, String> {
-    // Prevent infinite recursion from malicious relay
-    if depth >= MAX_SYNC_DEPTH {
-        warn!(
-            "Forum {}: max sync depth {} reached, stopping",
-            forum_hash.short(),
-            MAX_SYNC_DEPTH
-        );
-        return Ok(0);
-    }
-
     let http_client = Client::new();
     let rpc_client = create_rpc_client();
 
-    // Step 1: Build sync request with known heads
-    let known_heads = persistence
-        .get_heads(forum_hash)
-        .map_err(|e| e.to_string())?;
-    let known_heads_vec: Vec<ContentHash> = known_heads.into_iter().collect();
+    // Load stored cursor for incremental sync (resumes from last position)
+    let (mut cursor_timestamp, mut cursor_hash) =
+        persistence.get_sync_cursor(forum_hash).unwrap_or((0, None));
+    let mut total_stored = 0;
+    let mut total_rejected = 0;
 
     info!(
-        "Syncing forum {}: sending {} known heads (depth {})",
+        "Syncing forum {} with cursor ts={}, hash={}",
         forum_hash.short(),
-        known_heads_vec.len(),
-        depth
+        cursor_timestamp,
+        cursor_hash
+            .as_ref()
+            .map(|h| h.short())
+            .unwrap_or("none".to_string())
     );
 
-    // Step 2: Send sync request to relay via JSON-RPC
-    let sync_request = rpc_client.build_sync_request(forum_hash, &known_heads_vec, None);
-    let sync_rpc_response = send_rpc_request(&http_client, &rpc_client, &sync_request).await?;
-    let sync_result: SyncResult = rpc_client
-        .parse_sync_response(sync_rpc_response)
-        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+    loop {
+        // Send cursor-based sync request to relay
+        let sync_request = rpc_client.build_sync_request(
+            forum_hash,
+            cursor_timestamp,
+            cursor_hash.as_ref(),
+            None, // Use default batch size
+        );
+        let sync_rpc_response = send_rpc_request(&http_client, &rpc_client, &sync_request).await?;
+        let sync_result: SyncResult = rpc_client
+            .parse_sync_response(sync_rpc_response)
+            .map_err(|e| format!("Failed to parse sync response: {}", e))?;
 
-    // Step 3: Filter out nodes we already have and deduplicate
-    let missing_hashes = sync_result.parse_missing_hashes();
-    let mut nodes_to_fetch: Vec<ContentHash> = Vec::new();
-    let mut seen: HashSet<ContentHash> = HashSet::new();
-    for hash in &missing_hashes {
-        if !seen.contains(hash) && !persistence.node_exists(forum_hash, hash).unwrap_or(false) {
-            nodes_to_fetch.push(*hash);
-            seen.insert(*hash);
+        if sync_result.nodes.is_empty() {
+            info!("Forum {} is up to date", forum_hash.short());
+            break;
         }
-    }
 
-    if nodes_to_fetch.is_empty() {
-        info!("Forum {} is already up to date", forum_hash.short());
-        // Only update heads with hashes that exist locally (security: don't trust relay blindly)
-        let local_nodes = persistence
-            .load_forum_nodes(forum_hash)
-            .map_err(|e| e.to_string())?;
-        let local_hashes: HashSet<ContentHash> = local_nodes.iter().map(|n| *n.hash()).collect();
-        let server_heads = sync_result.parse_server_heads();
-        let verified_heads: HashSet<ContentHash> = server_heads
-            .into_iter()
-            .filter(|h| local_hashes.contains(h))
-            .collect();
-        if !verified_heads.is_empty() {
-            persistence
-                .set_heads(forum_hash, &verified_heads)
-                .map_err(|e| e.to_string())?;
-        }
-        return Ok(0);
-    }
-
-    info!(
-        "Forum {}: fetching {} missing nodes",
-        forum_hash.short(),
-        nodes_to_fetch.len()
-    );
-
-    // Step 4: Fetch missing nodes via JSON-RPC
-    let fetch_request = rpc_client.build_fetch_request(&nodes_to_fetch);
-    let fetch_rpc_response = send_rpc_request(&http_client, &rpc_client, &fetch_request).await?;
-    let fetch_result: FetchResult = rpc_client
-        .parse_fetch_response(fetch_rpc_response)
-        .map_err(|e| format!("Failed to parse fetch response: {}", e))?;
-
-    if !fetch_result.not_found.is_empty() {
-        warn!(
-            "Forum {}: {} nodes not found on relay",
+        info!(
+            "Forum {}: received {} nodes (has_more={})",
             forum_hash.short(),
-            fetch_result.not_found.len()
+            sync_result.nodes.len(),
+            sync_result.has_more
+        );
+
+        // Deserialize nodes from this batch
+        let fetched_nodes = sync_result
+            .deserialize_nodes()
+            .map_err(|e| format!("Failed to deserialize nodes: {}", e))?;
+
+        // Filter out nodes we already have and deduplicate
+        let mut deserialized_map: HashMap<ContentHash, DagNode> = HashMap::new();
+        for (hash, node) in fetched_nodes {
+            if !persistence.node_exists(forum_hash, &hash).unwrap_or(false) {
+                deserialized_map.entry(hash).or_insert(node);
+            }
+        }
+
+        if deserialized_map.is_empty() {
+            // All nodes in this batch already exist locally
+            // Update cursor and continue to next batch
+            cursor_timestamp = sync_result.next_cursor_timestamp;
+            cursor_hash = sync_result.parse_next_cursor_hash();
+            if !sync_result.has_more {
+                break;
+            }
+            continue;
+        }
+
+        // Process this batch of nodes
+        let (stored, rejected) =
+            process_node_batch(persistence, forum_hash, deserialized_map).await?;
+        total_stored += stored;
+        total_rejected += rejected;
+
+        // Update cursor for next batch
+        cursor_timestamp = sync_result.next_cursor_timestamp;
+        cursor_hash = sync_result.parse_next_cursor_hash();
+
+        // Stop if no more batches
+        if !sync_result.has_more {
+            break;
+        }
+    }
+
+    // Save cursor for next incremental sync
+    if let Err(e) = persistence.set_sync_cursor(forum_hash, cursor_timestamp, cursor_hash.as_ref())
+    {
+        warn!(
+            "Forum {}: failed to save sync cursor: {}",
+            forum_hash.short(),
+            e
         );
     }
 
-    // Step 5: Deserialize, deduplicate, sort topologically, validate, and store nodes
-    //
-    // We need to validate and store nodes in topological order so that:
-    // - Parent nodes exist before children are validated
-    // - Permissions are computed correctly for each node
-
-    // First, deserialize all nodes and deduplicate by hash
-    let mut deserialized_map: HashMap<ContentHash, DagNode> = HashMap::new();
-    let fetched_nodes = fetch_result
-        .deserialize_nodes()
-        .map_err(|e| format!("Failed to deserialize nodes: {}", e))?;
-    for (hash, node) in fetched_nodes {
-        // Deduplicate: only keep first occurrence
-        deserialized_map.entry(hash).or_insert(node);
+    if total_rejected > 0 {
+        info!(
+            "Forum {}: rejected {} invalid nodes during sync",
+            forum_hash.short(),
+            total_rejected
+        );
     }
 
+    info!(
+        "Forum {}: synced {} nodes (cursor ts={}, hash={})",
+        forum_hash.short(),
+        total_stored,
+        cursor_timestamp,
+        cursor_hash
+            .as_ref()
+            .map(|h| h.short())
+            .unwrap_or("none".to_string())
+    );
+
+    Ok(total_stored)
+}
+
+/// Processes a batch of nodes: sorts topologically, validates, and stores.
+///
+/// Returns (stored_count, rejected_count).
+async fn process_node_batch(
+    persistence: &SharedForumPersistence,
+    forum_hash: &ContentHash,
+    deserialized_map: HashMap<ContentHash, DagNode>,
+) -> Result<(usize, usize), String> {
     let mut deserialized_nodes: Vec<DagNode> = deserialized_map.into_values().collect();
 
     // Sort topologically: forum genesis first, then boards, then threads, then posts/mod actions
@@ -458,47 +478,7 @@ async fn sync_forum_with_depth(
         stored += 1;
     }
 
-    if rejected > 0 {
-        info!(
-            "Forum {}: rejected {} invalid nodes during sync",
-            forum_hash.short(),
-            rejected
-        );
-    }
-
-    // Step 6: Update local heads - ONLY with hashes that exist locally
-    // Security: Don't blindly trust server_heads from relay
-    let verified_heads: HashSet<ContentHash> = sync_result
-        .parse_server_heads()
-        .into_iter()
-        .filter(|h| nodes_map.contains_key(h))
-        .collect();
-
-    if !verified_heads.is_empty() {
-        persistence
-            .set_heads(forum_hash, &verified_heads)
-            .map_err(|e| e.to_string())?;
-    }
-
-    info!(
-        "Forum {}: synced {} nodes successfully (depth {})",
-        forum_hash.short(),
-        stored,
-        depth
-    );
-
-    // If there are more nodes, sync again with incremented depth
-    if sync_result.has_more {
-        info!(
-            "Forum {}: more nodes available, continuing sync",
-            forum_hash.short()
-        );
-        let additional =
-            Box::pin(sync_forum_with_depth(persistence, forum_hash, depth + 1)).await?;
-        return Ok(stored + additional);
-    }
-
-    Ok(stored)
+    Ok((stored, rejected))
 }
 
 /// Checks if a forum exists locally (has been synced before).
@@ -1771,11 +1751,11 @@ pub async fn post_reply_handler(
     Redirect::to(&format!("/forum/{}/thread/{}", forum_hash, thread_hash)).into_response()
 }
 
-/// Helper to get current DAG heads from the relay for causal ordering
-async fn get_dag_heads(forum_hash: &str) -> Vec<ContentHash> {
-    let http_client = Client::new();
-    let rpc_client = create_rpc_client();
-
+/// Helper to get current DAG heads from local storage for causal ordering.
+///
+/// Heads are computed locally from the DAG structure rather than fetched from relay.
+/// A head is any node that is not referenced as a parent by another node.
+fn get_dag_heads(persistence: &SharedForumPersistence, forum_hash: &str) -> Vec<ContentHash> {
     let forum_content_hash = match ContentHash::from_hex(forum_hash) {
         Ok(h) => h,
         Err(e) => {
@@ -1784,23 +1764,15 @@ async fn get_dag_heads(forum_hash: &str) -> Vec<ContentHash> {
         }
     };
 
-    // Use sync endpoint with empty known_heads to get server's current heads
-    let request = rpc_client.build_sync_request(&forum_content_hash, &[], None);
-
-    match send_rpc_request(&http_client, &rpc_client, &request).await {
-        Ok(rpc_response) => match rpc_client.parse_sync_response(rpc_response) {
-            Ok(sync_result) => {
-                let heads = sync_result.parse_server_heads();
-                info!("Got {} DAG heads for forum {}", heads.len(), forum_hash);
-                heads
-            }
-            Err(e) => {
-                error!("Failed to parse sync response: {}", e);
-                vec![]
-            }
-        },
+    // Load heads from local storage
+    match persistence.get_heads(&forum_content_hash) {
+        Ok(heads) => {
+            let heads_vec: Vec<ContentHash> = heads.into_iter().collect();
+            info!("Got {} DAG heads for forum {}", heads_vec.len(), forum_hash);
+            heads_vec
+        }
         Err(e) => {
-            error!("Failed to fetch DAG heads: {}", e);
+            error!("Failed to get DAG heads: {}", e);
             vec![]
         }
     }
@@ -2011,7 +1983,7 @@ pub async fn add_moderator_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create mod action node
     let mod_action = match ModActionNode::create(
@@ -2134,7 +2106,7 @@ pub async fn remove_moderator_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create mod action node
     let mod_action = match ModActionNode::create(
@@ -2289,7 +2261,7 @@ pub async fn add_board_moderator_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create board mod action node
     let mod_action = match ModActionNode::create_board_action(
@@ -2430,7 +2402,7 @@ pub async fn remove_board_moderator_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create board mod action node
     let mod_action = match ModActionNode::create_board_action(
@@ -2563,7 +2535,7 @@ pub async fn move_thread_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create move thread action node
     let mod_action = match ModActionNode::create_move_thread_action(
@@ -2703,7 +2675,7 @@ pub async fn hide_thread_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create content action node for hiding the thread
     let mod_action = match ModActionNode::create_content_action(
@@ -2829,7 +2801,7 @@ pub async fn hide_post_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create content action node for hiding the post
     let mod_action = match ModActionNode::create_content_action(
@@ -2949,7 +2921,7 @@ pub async fn hide_board_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create hide board action node
     let mod_action = match ModActionNode::create_hide_board_action(
@@ -3071,7 +3043,7 @@ pub async fn unhide_board_handler(
         .map(|p| Password::new(p.clone()));
 
     // Get current DAG heads for causal ordering
-    let parent_hashes = get_dag_heads(&forum_hash).await;
+    let parent_hashes = get_dag_heads(&app_state.forum_persistence, &forum_hash);
 
     // Create unhide board action node
     let mod_action = match ModActionNode::create_hide_board_action(
@@ -3472,11 +3444,11 @@ pub async fn join_forum_handler(
         info!("Forum {} already synced, updating...", forum_hash.short());
     }
 
-    // Check if forum exists on the relay first by attempting a sync
+    // Check if forum exists on the relay first by attempting a sync with batch_size=1
     let http_client = Client::new();
     let rpc_client = create_rpc_client();
 
-    let check_request = rpc_client.build_sync_request(&forum_hash, &[], Some(1));
+    let check_request = rpc_client.build_sync_request(&forum_hash, 0, None, Some(1));
     match send_rpc_request(&http_client, &rpc_client, &check_request).await {
         Ok(rpc_response) => {
             if let Err(e) = rpc_client.parse_sync_response(rpc_response) {
@@ -3491,7 +3463,7 @@ pub async fn join_forum_handler(
         }
     }
 
-    // Perform the sync
+    // Perform the full sync
     match sync_forum(&app_state.forum_persistence, &forum_hash).await {
         Ok(nodes_synced) => {
             if already_synced {

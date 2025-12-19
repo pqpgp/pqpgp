@@ -2,81 +2,130 @@
 //!
 //! This module defines the request/response types used for syncing forum data
 //! between clients and relays. The protocol is designed to:
-//! - Minimize data transfer by only sending missing nodes
-//! - Support incremental sync using DAG heads
+//! - Minimize data transfer with cursor-based pagination
+//! - Support incremental sync with batching for scalability
 //! - Be stateless on the server side
 //!
-//! ## Sync Algorithm
+//! ## Sync Protocol
 //!
-//! 1. Client sends known heads (nodes with no children)
-//! 2. Server computes which nodes the client is missing
-//! 3. Client requests the missing nodes by hash
-//! 4. Client validates and stores the received nodes
+//! The sync protocol uses cursor-based pagination with a (timestamp, hash) cursor:
 //!
-//! This approach works because the DAG structure means any node's ancestry
-//! can be determined by following parent references.
+//! 1. Client sends: `{ forum_hash, cursor_timestamp, cursor_hash, batch_size }`
+//! 2. Server returns nodes after the cursor, up to batch_size
+//! 3. Client stores nodes, uses response cursor for next request
+//! 4. Repeat until `has_more = false`
+//!
+//! ### Cursor Format
+//!
+//! The cursor is `(timestamp, hash)` which provides:
+//! - Efficient O(log n) seek using timestamp index
+//! - Correct handling of multiple nodes with same timestamp (hash tiebreaker)
+//! - No gaps or duplicates when paginating
+//!
+//! ### Benefits
+//!
+//! - O(log n) relay lookup with timestamp index
+//! - Constant request size (just cursor fields)
+//! - Constant response size (batch_size limit)
+//! - Simple, stateless protocol
 
 use crate::forum::{ContentHash, DagNode};
 use serde::{Deserialize, Serialize};
 
+/// Default batch size for sync requests.
+pub const DEFAULT_SYNC_BATCH_SIZE: usize = 100;
+
+/// Maximum batch size to prevent oversized responses.
+pub const MAX_SYNC_BATCH_SIZE: usize = 500;
+
 /// Request to sync with a forum's DAG.
 ///
-/// The client sends the hashes of nodes it considers "heads" (nodes without children).
-/// The server responds with hashes of nodes the client is missing.
+/// Uses cursor-based pagination for efficient incremental sync.
+///
+/// ## Usage
+///
+/// 1. First sync: `cursor_timestamp = 0, cursor_hash = None`
+/// 2. Response includes `next_cursor_*` fields
+/// 3. Next request uses those as the new cursor
+/// 4. Continue until `has_more = false`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {
     /// The forum hash to sync.
     pub forum_hash: ContentHash,
-    /// Hashes of nodes the client has that have no children (heads).
-    /// If empty, client wants to sync from scratch.
-    pub known_heads: Vec<ContentHash>,
-    /// Optional: Maximum number of missing hashes to return.
-    /// Useful for paginated sync of large forums.
-    pub max_results: Option<usize>,
+    /// Cursor timestamp: fetch nodes with timestamp >= this value.
+    /// Use 0 for initial sync to get all nodes.
+    pub cursor_timestamp: u64,
+    /// Cursor hash: if provided, skip nodes at `cursor_timestamp` until after this hash.
+    /// This handles ties when multiple nodes have the same timestamp.
+    /// Use None for initial sync or when starting at a new timestamp.
+    pub cursor_hash: Option<ContentHash>,
+    /// Maximum number of nodes to return in this batch.
+    /// Defaults to DEFAULT_SYNC_BATCH_SIZE if not specified.
+    /// Capped at MAX_SYNC_BATCH_SIZE.
+    pub batch_size: Option<usize>,
 }
 
 impl SyncRequest {
-    /// Creates a new sync request for a forum.
+    /// Creates a new sync request for initial sync (all nodes).
     pub fn new(forum_hash: ContentHash) -> Self {
         Self {
             forum_hash,
-            known_heads: Vec::new(),
-            max_results: None,
+            cursor_timestamp: 0,
+            cursor_hash: None,
+            batch_size: None,
         }
     }
 
-    /// Creates a sync request with known heads.
-    pub fn with_heads(forum_hash: ContentHash, known_heads: Vec<ContentHash>) -> Self {
+    /// Creates a sync request with a cursor from a previous response.
+    pub fn with_cursor(
+        forum_hash: ContentHash,
+        cursor_timestamp: u64,
+        cursor_hash: Option<ContentHash>,
+    ) -> Self {
         Self {
             forum_hash,
-            known_heads,
-            max_results: None,
+            cursor_timestamp,
+            cursor_hash,
+            batch_size: None,
         }
     }
 
-    /// Sets the maximum number of results to return.
-    pub fn with_max_results(mut self, max: usize) -> Self {
-        self.max_results = Some(max);
+    /// Sets the batch size for this request.
+    pub fn with_batch_size(mut self, size: usize) -> Self {
+        self.batch_size = Some(size.min(MAX_SYNC_BATCH_SIZE));
         self
+    }
+
+    /// Returns the effective batch size (applies defaults and limits).
+    pub fn effective_batch_size(&self) -> usize {
+        self.batch_size
+            .unwrap_or(DEFAULT_SYNC_BATCH_SIZE)
+            .min(MAX_SYNC_BATCH_SIZE)
     }
 }
 
 /// Response to a sync request.
 ///
-/// Contains hashes of nodes the client is missing, which they can then
-/// fetch using `FetchNodesRequest`.
+/// Contains a batch of nodes and cursor for the next request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncResponse {
     /// The forum hash this response is for.
     pub forum_hash: ContentHash,
-    /// Hashes of nodes the client is missing.
-    /// Ordered so parents come before children (topological order).
-    pub missing_hashes: Vec<ContentHash>,
-    /// Whether there are more missing nodes than returned.
-    /// If true, client should sync again after fetching these.
+    /// Nodes in this batch, ordered by (timestamp, hash).
+    /// These are serialized nodes ready for storage.
+    pub nodes: Vec<SerializedNode>,
+    /// Cursor timestamp for the next request.
+    /// This is the timestamp of the last node in the batch.
+    pub next_cursor_timestamp: u64,
+    /// Cursor hash for the next request.
+    /// This is the hash of the last node in the batch.
+    /// Use both cursor fields in the next SyncRequest to continue.
+    pub next_cursor_hash: Option<ContentHash>,
+    /// Whether there are more nodes available after this batch.
+    /// If true, client should make another request with the cursor fields.
     pub has_more: bool,
-    /// Current heads on the server (for client to update after sync).
-    pub server_heads: Vec<ContentHash>,
+    /// Total number of nodes in the forum (optional, for progress display).
+    pub total_nodes: Option<usize>,
 }
 
 impl SyncResponse {
@@ -84,80 +133,37 @@ impl SyncResponse {
     pub fn new(forum_hash: ContentHash) -> Self {
         Self {
             forum_hash,
-            missing_hashes: Vec::new(),
+            nodes: Vec::new(),
+            next_cursor_timestamp: 0,
+            next_cursor_hash: None,
             has_more: false,
-            server_heads: Vec::new(),
+            total_nodes: None,
         }
     }
 
-    /// Sets the missing hashes.
-    pub fn with_missing(mut self, hashes: Vec<ContentHash>) -> Self {
-        self.missing_hashes = hashes;
+    /// Sets the nodes and cursor for this response.
+    pub fn with_nodes(
+        mut self,
+        nodes: Vec<SerializedNode>,
+        next_cursor_timestamp: u64,
+        next_cursor_hash: ContentHash,
+    ) -> Self {
+        self.nodes = nodes;
+        self.next_cursor_timestamp = next_cursor_timestamp;
+        self.next_cursor_hash = Some(next_cursor_hash);
         self
     }
 
-    /// Sets whether there are more nodes to sync.
+    /// Sets whether there are more nodes.
     pub fn with_has_more(mut self, has_more: bool) -> Self {
         self.has_more = has_more;
         self
     }
 
-    /// Sets the server's current heads.
-    pub fn with_server_heads(mut self, heads: Vec<ContentHash>) -> Self {
-        self.server_heads = heads;
+    /// Sets the total node count.
+    pub fn with_total_nodes(mut self, total: usize) -> Self {
+        self.total_nodes = Some(total);
         self
-    }
-}
-
-/// Request to fetch specific nodes by hash.
-///
-/// Used after a `SyncResponse` to retrieve the actual node data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FetchNodesRequest {
-    /// Hashes of nodes to fetch.
-    pub hashes: Vec<ContentHash>,
-}
-
-impl FetchNodesRequest {
-    /// Creates a new fetch request.
-    pub fn new(hashes: Vec<ContentHash>) -> Self {
-        Self { hashes }
-    }
-}
-
-/// Response containing fetched nodes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FetchNodesResponse {
-    /// The fetched nodes, serialized.
-    /// Order matches the request order where possible.
-    pub nodes: Vec<SerializedNode>,
-    /// Hashes that were not found.
-    pub not_found: Vec<ContentHash>,
-}
-
-impl FetchNodesResponse {
-    /// Creates a new fetch response.
-    pub fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            not_found: Vec::new(),
-        }
-    }
-
-    /// Adds a node to the response.
-    pub fn add_node(&mut self, hash: ContentHash, data: Vec<u8>) {
-        self.nodes.push(SerializedNode { hash, data });
-    }
-
-    /// Adds a not-found hash to the response.
-    pub fn add_not_found(&mut self, hash: ContentHash) {
-        self.not_found.push(hash);
-    }
-}
-
-impl Default for FetchNodesResponse {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -295,61 +301,69 @@ mod tests {
         let req = SyncRequest::new(hash);
 
         assert_eq!(req.forum_hash, hash);
-        assert!(req.known_heads.is_empty());
-        assert!(req.max_results.is_none());
+        assert_eq!(req.cursor_timestamp, 0);
+        assert!(req.cursor_hash.is_none());
+        assert!(req.batch_size.is_none());
     }
 
     #[test]
-    fn test_sync_request_with_heads() {
+    fn test_sync_request_with_cursor() {
         let hash = test_hash();
-        let head = ContentHash::from_bytes([1u8; 64]);
-        let req = SyncRequest::with_heads(hash, vec![head]);
+        let cursor_hash = ContentHash::from_bytes([1u8; 64]);
+        let req = SyncRequest::with_cursor(hash, 12345, Some(cursor_hash));
 
-        assert_eq!(req.known_heads.len(), 1);
-        assert_eq!(req.known_heads[0], head);
+        assert_eq!(req.forum_hash, hash);
+        assert_eq!(req.cursor_timestamp, 12345);
+        assert_eq!(req.cursor_hash, Some(cursor_hash));
     }
 
     #[test]
-    fn test_sync_request_with_max_results() {
+    fn test_sync_request_with_batch_size() {
         let hash = test_hash();
-        let req = SyncRequest::new(hash).with_max_results(100);
+        let req = SyncRequest::new(hash).with_batch_size(50);
 
-        assert_eq!(req.max_results, Some(100));
+        assert_eq!(req.batch_size, Some(50));
+        assert_eq!(req.effective_batch_size(), 50);
+    }
+
+    #[test]
+    fn test_sync_request_batch_size_capped() {
+        let hash = test_hash();
+        let req = SyncRequest::new(hash).with_batch_size(1000);
+
+        // Should be capped at MAX_SYNC_BATCH_SIZE
+        assert_eq!(req.batch_size, Some(MAX_SYNC_BATCH_SIZE));
+        assert_eq!(req.effective_batch_size(), MAX_SYNC_BATCH_SIZE);
+    }
+
+    #[test]
+    fn test_sync_request_default_batch_size() {
+        let hash = test_hash();
+        let req = SyncRequest::new(hash);
+
+        assert_eq!(req.effective_batch_size(), DEFAULT_SYNC_BATCH_SIZE);
     }
 
     #[test]
     fn test_sync_response_creation() {
         let hash = test_hash();
+        let node_hash = ContentHash::from_bytes([1u8; 64]);
+        let nodes = vec![SerializedNode {
+            hash: node_hash,
+            data: vec![1, 2, 3],
+        }];
+
         let resp = SyncResponse::new(hash)
-            .with_missing(vec![ContentHash::from_bytes([1u8; 64])])
+            .with_nodes(nodes, 12345, node_hash)
             .with_has_more(true)
-            .with_server_heads(vec![ContentHash::from_bytes([2u8; 64])]);
+            .with_total_nodes(100);
 
         assert_eq!(resp.forum_hash, hash);
-        assert_eq!(resp.missing_hashes.len(), 1);
-        assert!(resp.has_more);
-        assert_eq!(resp.server_heads.len(), 1);
-    }
-
-    #[test]
-    fn test_fetch_nodes_request() {
-        let hashes = vec![
-            ContentHash::from_bytes([1u8; 64]),
-            ContentHash::from_bytes([2u8; 64]),
-        ];
-        let req = FetchNodesRequest::new(hashes.clone());
-
-        assert_eq!(req.hashes.len(), 2);
-    }
-
-    #[test]
-    fn test_fetch_nodes_response() {
-        let mut resp = FetchNodesResponse::new();
-        resp.add_node(ContentHash::from_bytes([1u8; 64]), vec![1, 2, 3]);
-        resp.add_not_found(ContentHash::from_bytes([2u8; 64]));
-
         assert_eq!(resp.nodes.len(), 1);
-        assert_eq!(resp.not_found.len(), 1);
+        assert_eq!(resp.next_cursor_timestamp, 12345);
+        assert_eq!(resp.next_cursor_hash, Some(node_hash));
+        assert!(resp.has_more);
+        assert_eq!(resp.total_nodes, Some(100));
     }
 
     #[test]
@@ -395,8 +409,6 @@ mod tests {
 
     #[test]
     fn test_serialized_node() {
-        // This test verifies the structure exists, actual deserialization
-        // is tested in integration with DagNode
         let node = SerializedNode {
             hash: test_hash(),
             data: vec![1, 2, 3],
@@ -408,26 +420,37 @@ mod tests {
 
     #[test]
     fn test_sync_request_serialization() {
-        let req = SyncRequest::new(test_hash()).with_max_results(50);
+        let req = SyncRequest::new(test_hash()).with_batch_size(50);
         let bytes = bincode::serialize(&req).expect("Failed to serialize");
         let deserialized: SyncRequest =
             bincode::deserialize(&bytes).expect("Failed to deserialize");
 
         assert_eq!(req.forum_hash, deserialized.forum_hash);
-        assert_eq!(req.max_results, deserialized.max_results);
+        assert_eq!(req.cursor_timestamp, deserialized.cursor_timestamp);
+        assert_eq!(req.batch_size, deserialized.batch_size);
     }
 
     #[test]
     fn test_sync_response_serialization() {
+        let node_hash = ContentHash::from_bytes([1u8; 64]);
+        let nodes = vec![SerializedNode {
+            hash: node_hash,
+            data: vec![1, 2, 3],
+        }];
         let resp = SyncResponse::new(test_hash())
-            .with_missing(vec![ContentHash::from_bytes([1u8; 64])])
+            .with_nodes(nodes, 12345, node_hash)
             .with_has_more(true);
+
         let bytes = bincode::serialize(&resp).expect("Failed to serialize");
         let deserialized: SyncResponse =
             bincode::deserialize(&bytes).expect("Failed to deserialize");
 
         assert_eq!(resp.forum_hash, deserialized.forum_hash);
-        assert_eq!(resp.missing_hashes.len(), deserialized.missing_hashes.len());
+        assert_eq!(resp.nodes.len(), deserialized.nodes.len());
+        assert_eq!(
+            resp.next_cursor_timestamp,
+            deserialized.next_cursor_timestamp
+        );
         assert_eq!(resp.has_more, deserialized.has_more);
     }
 }

@@ -143,14 +143,18 @@ async fn attack_replay_node(
     let forum_hash = simulation.forum_hash().ok_or("No forum")?;
 
     // Get existing nodes from the forum (from Alice's relay which has all content)
-    let sync_result = simulation.alice_relay().sync_forum(forum_hash, &[]).await?;
+    // Using cursor-based sync: timestamp=0 means get all nodes from beginning
+    let sync_result = simulation
+        .alice_relay()
+        .sync_forum(forum_hash, 0, None)
+        .await?;
 
-    if sync_result.missing_hashes.is_empty() {
+    if sync_result.nodes.is_empty() {
         return Ok(true); // No nodes to replay
     }
 
-    // Fetch an existing node
-    let hash = ContentHash::from_hex(&sync_result.missing_hashes[0])?;
+    // Use the first node from the sync result
+    let hash = ContentHash::from_hex(&sync_result.nodes[0].hash)?;
     let fetch_result = simulation.alice_relay().fetch_nodes(&[hash]).await?;
 
     if fetch_result.nodes.is_empty() {

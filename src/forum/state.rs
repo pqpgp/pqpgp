@@ -19,7 +19,7 @@ use crate::forum::dag_ops::nodes_in_topological_order;
 use crate::forum::{
     ContentHash, DagNode, ForumGenesis, ForumPermissions, NodeType, PermissionBuilder,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// In-memory state for a single forum.
 ///
@@ -62,6 +62,11 @@ pub struct ForumState {
     /// Lazily rebuilt when needed (None = needs rebuild).
     /// Enables O(k) pagination for export instead of O(n log n) per request.
     topological_cache: Option<Vec<ContentHash>>,
+
+    /// Nodes indexed by (timestamp, hash) for efficient timestamp-based sync.
+    /// BTreeMap provides O(log n) range queries by timestamp.
+    /// The hash is included in the key to handle multiple nodes with same timestamp.
+    nodes_by_timestamp: BTreeMap<(u64, ContentHash), ()>,
 }
 
 impl ForumState {
@@ -76,6 +81,10 @@ impl ForumState {
         let mut heads = HashSet::new();
         heads.insert(hash);
 
+        // Initialize timestamp index with genesis node
+        let mut nodes_by_timestamp = BTreeMap::new();
+        nodes_by_timestamp.insert((genesis.created_at(), hash), ());
+
         Self {
             nodes,
             heads,
@@ -88,6 +97,7 @@ impl ForumState {
             board_threads: HashMap::new(),
             thread_posts: HashMap::new(),
             topological_cache: Some(vec![hash]), // Genesis is the only node
+            nodes_by_timestamp,
         }
     }
 
@@ -120,6 +130,10 @@ impl ForumState {
 
         // Update secondary indexes based on node type
         self.update_indexes_for_node(&node);
+
+        // Update timestamp index for sync
+        let timestamp = node.created_at();
+        self.nodes_by_timestamp.insert((timestamp, hash), ());
 
         // Invalidate topological cache since we added a new node
         self.topological_cache = None;
@@ -184,6 +198,66 @@ impl ForumState {
         self.nodes.iter()
     }
 
+    /// Gets nodes after a cursor for sync, up to a limit.
+    ///
+    /// Uses the timestamp index for efficient O(log n) seek + O(batch) iteration.
+    /// The cursor is `(timestamp, hash)` - nodes at the cursor timestamp are skipped
+    /// until after the cursor hash, handling ties correctly.
+    ///
+    /// # Arguments
+    /// * `cursor_timestamp` - Start from nodes with timestamp >= this value (use 0 for all)
+    /// * `cursor_hash` - If Some, skip nodes at cursor_timestamp until after this hash
+    /// * `limit` - Maximum number of nodes to return
+    ///
+    /// # Returns
+    /// Tuple of (nodes, has_more) where nodes are ordered by (timestamp, hash)
+    pub fn get_nodes_after_cursor(
+        &self,
+        cursor_timestamp: u64,
+        cursor_hash: Option<&ContentHash>,
+        limit: usize,
+    ) -> (Vec<&DagNode>, bool) {
+        use std::ops::Bound;
+
+        let mut nodes = Vec::with_capacity(limit);
+        let mut skip_until_after = cursor_hash;
+
+        // Use range to seek to the cursor position efficiently
+        let start = (cursor_timestamp, ContentHash::from_bytes([0u8; 64]));
+        let range = self
+            .nodes_by_timestamp
+            .range((Bound::Included(start), Bound::Unbounded));
+
+        for ((ts, hash), ()) in range {
+            // If we have a cursor hash, skip nodes at the cursor timestamp until we pass it
+            if let Some(cursor) = skip_until_after {
+                if *ts == cursor_timestamp && hash <= cursor {
+                    continue;
+                }
+                // We've passed the cursor, stop skipping
+                skip_until_after = None;
+            }
+
+            // Get the actual node
+            if let Some(node) = self.nodes.get(hash) {
+                nodes.push(node);
+                if nodes.len() >= limit {
+                    // Check if there are more nodes after this batch
+                    // We need to peek at the next item
+                    let next_start = (*ts, *hash);
+                    let has_more = self
+                        .nodes_by_timestamp
+                        .range((Bound::Excluded(next_start), Bound::Unbounded))
+                        .next()
+                        .is_some();
+                    return (nodes, has_more);
+                }
+            }
+        }
+
+        (nodes, false)
+    }
+
     /// Rebuilds permissions and secondary indexes from scratch by replaying all nodes.
     ///
     /// This is called during forum loading to ensure indexes are consistent with
@@ -195,6 +269,7 @@ impl ForumState {
         self.boards.clear();
         self.board_threads.clear();
         self.thread_posts.clear();
+        self.nodes_by_timestamp.clear();
 
         // Collect nodes in topological order first to avoid borrow conflict
         let ordered_nodes: Vec<DagNode> = nodes_in_topological_order(&self.nodes)
@@ -206,6 +281,9 @@ impl ForumState {
             let _ = builder.process_node(node);
             // Rebuild secondary indexes
             self.update_indexes_for_node(node);
+            // Rebuild timestamp index
+            self.nodes_by_timestamp
+                .insert((node.created_at(), *node.hash()), ());
         }
 
         if let Some(hash) = self.nodes.values().find_map(|n| {

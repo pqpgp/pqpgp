@@ -203,15 +203,19 @@ impl SimulatorRelay {
             .map_err(|e| format!("Failed to parse fetch result: {}", e))
     }
 
-    /// Gets sync information for a forum.
+    /// Gets sync information for a forum using cursor-based pagination.
+    ///
+    /// For initial sync, use cursor_timestamp=0 and cursor_hash=None.
+    /// Returns nodes after the cursor position.
     pub async fn sync_forum(
         &self,
         forum_hash: &ContentHash,
-        known_heads: &[ContentHash],
+        cursor_timestamp: u64,
+        cursor_hash: Option<&ContentHash>,
     ) -> Result<SyncResult, String> {
-        let request = self
-            .rpc_client
-            .build_sync_request(forum_hash, known_heads, None);
+        let request =
+            self.rpc_client
+                .build_sync_request(forum_hash, cursor_timestamp, cursor_hash, None);
         let response = self.send_request(&request).await?;
 
         self.rpc_client

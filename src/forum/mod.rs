@@ -89,8 +89,8 @@ pub use storage::{
     ThreadSummary, DEFAULT_PAGE_SIZE,
 };
 pub use sync::{
-    ExportForumRequest, ExportForumResponse, FetchNodesRequest, FetchNodesResponse, SerializedNode,
-    SubmitNodeRequest, SubmitNodeResponse, SyncRequest, SyncResponse,
+    ExportForumRequest, ExportForumResponse, SerializedNode, SubmitNodeRequest, SubmitNodeResponse,
+    SyncRequest, SyncResponse, DEFAULT_SYNC_BATCH_SIZE, MAX_SYNC_BATCH_SIZE,
 };
 pub use thread::{ThreadRoot, ThreadRootContent};
 pub use types::{current_timestamp_millis, ContentHash, ModAction, NodeType};
