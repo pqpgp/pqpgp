@@ -116,17 +116,19 @@ pub struct ForumState {
     boards: Vec<ContentHash>,                              // O(1) board listing
     board_threads: HashMap<ContentHash, Vec<ContentHash>>, // O(1) threads per board
     thread_posts: HashMap<ContentHash, Vec<ContentHash>>,  // O(1) posts per thread
+    nodes_by_timestamp: BTreeMap<(u64, ContentHash), ()>,  // O(log n) sync cursor
     topological_cache: Option<Vec<ContentHash>>,           // Lazy topological order
 }
 ```
 
-| Index           | Key Type      | Value Type             | Purpose             |
-| --------------- | ------------- | ---------------------- | ------------------- |
-| `nodes`         | `ContentHash` | `DagNode`              | Primary node lookup |
-| `heads`         | -             | `HashSet<ContentHash>` | DAG head tracking   |
-| `boards`        | -             | `Vec<ContentHash>`     | Ordered board list  |
-| `board_threads` | `ContentHash` | `Vec<ContentHash>`     | Threads per board   |
-| `thread_posts`  | `ContentHash` | `Vec<ContentHash>`     | Posts per thread    |
+| Index                | Key Type             | Value Type             | Purpose                      |
+| -------------------- | -------------------- | ---------------------- | ---------------------------- |
+| `nodes`              | `ContentHash`        | `DagNode`              | Primary node lookup          |
+| `heads`              | -                    | `HashSet<ContentHash>` | DAG head tracking            |
+| `boards`             | -                    | `Vec<ContentHash>`     | Ordered board list           |
+| `board_threads`      | `ContentHash`        | `Vec<ContentHash>`     | Threads per board            |
+| `thread_posts`       | `ContentHash`        | `Vec<ContentHash>`     | Posts per thread             |
+| `nodes_by_timestamp` | `(u64, ContentHash)` | `()`                   | Cursor-based sync pagination |
 
 ### Messaging State (`bin/relay/src/rpc/state.rs`)
 

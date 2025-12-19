@@ -127,17 +127,23 @@ This prevents race conditions and makes moderation history auditable.
 
 ## Sync Protocol
 
-The sync protocol efficiently transfers only missing nodes:
+The sync protocol uses cursor-based pagination with `(timestamp, hash)` cursors for efficient incremental sync:
 
 ```
-1. Client → Relay:  SyncRequest { forum_hash, known_heads: [...] }
-2. Relay → Client:  SyncResponse { missing_hashes: [...], server_heads: [...] }
-3. Client → Relay:  FetchNodesRequest { hashes: [...] }
-4. Relay → Client:  FetchNodesResponse { nodes: [...] }
-5. Client validates and stores nodes, updates heads
+1. Client → Relay:  SyncRequest { forum_hash, cursor_timestamp: 0, cursor_hash: null, batch_size: 100 }
+2. Relay → Client:  SyncResponse { nodes: [...], next_cursor_timestamp, next_cursor_hash, has_more: true }
+3. Client validates and stores nodes
+4. Repeat with next cursor until has_more = false
 ```
 
-**Heads** are nodes with no children - the "tips" of the DAG. By comparing heads, client and relay can determine what's missing.
+**Benefits:**
+
+- O(log n) relay lookup using timestamp index
+- Fixed-size requests regardless of DAG complexity
+- Nodes returned directly in sync response (no separate fetch step)
+- Cursor handles ties when multiple nodes share a timestamp
+
+**Heads** are nodes with no children - the "tips" of the DAG. Clients compute heads locally from DAG structure.
 
 ## Trust Model
 

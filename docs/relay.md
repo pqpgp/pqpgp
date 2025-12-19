@@ -117,7 +117,7 @@ All RPC operations use the `/rpc` endpoint:
 | Method         | Description                                |
 | -------------- | ------------------------------------------ |
 | `forum.list`   | List all forums (minimal info)             |
-| `forum.sync`   | Get missing node hashes for sync           |
+| `forum.sync`   | Cursor-based sync with batched nodes       |
 | `forum.fetch`  | Fetch nodes by hash                        |
 | `forum.submit` | Submit a new node (including ForumGenesis) |
 | `forum.export` | Export entire forum DAG (paginated)        |
@@ -264,31 +264,60 @@ All requests use JSON-RPC 2.0 format:
 
 #### Sync Forum
 
+Uses cursor-based pagination with `(timestamp, hash)` cursor for efficient incremental sync.
+Nodes are returned directly in the response, eliminating the need for separate fetch calls.
+
 ```json
-// Request
+// Initial sync request (cursor_timestamp=0 to get all nodes)
 {
   "jsonrpc": "2.0",
   "method": "forum.sync",
   "params": {
     "forum_hash": "abc123...",
-    "known_heads": ["def456...", "ghi789..."],
-    "max_results": 1000
+    "cursor_timestamp": 0,
+    "cursor_hash": null,
+    "batch_size": 100
   },
   "id": 2
 }
 
-// Response
+// Response with nodes and next cursor
 {
   "jsonrpc": "2.0",
   "result": {
     "forum_hash": "abc123...",
-    "missing_hashes": ["jkl012...", "mno345..."],
-    "server_heads": ["pqr678..."],
-    "has_more": false
+    "nodes": [
+      {"hash": "jkl012...", "data": "<base64-encoded-node>"},
+      {"hash": "mno345...", "data": "<base64-encoded-node>"}
+    ],
+    "next_cursor_timestamp": 1700000000000,
+    "next_cursor_hash": "mno345...",
+    "has_more": true,
+    "total_nodes": 150
   },
   "id": 2
 }
+
+// Continue sync with cursor from previous response
+{
+  "jsonrpc": "2.0",
+  "method": "forum.sync",
+  "params": {
+    "forum_hash": "abc123...",
+    "cursor_timestamp": 1700000000000,
+    "cursor_hash": "mno345...",
+    "batch_size": 100
+  },
+  "id": 3
+}
 ```
+
+**Sync Protocol:**
+
+1. Client sends request with `cursor_timestamp=0` for initial sync
+2. Server returns batch of nodes ordered by `(timestamp, hash)`
+3. Client stores nodes, uses `next_cursor_*` fields for next request
+4. Repeat until `has_more=false`
 
 #### Fetch Nodes
 
@@ -419,7 +448,7 @@ All requests use JSON-RPC 2.0 format:
 
 ### Batching
 
-- Sync responses limited to 10,000 missing hashes
+- Sync responses limited to 500 nodes per batch (configurable, default 100)
 - Fetch requests limited to 1,000 nodes per batch
 - `has_more` flag indicates additional data available
 
@@ -435,14 +464,14 @@ pqpgp_relay_data/
 
 ## Resource Limits
 
-| Resource                         | Limit         |
-| -------------------------------- | ------------- |
-| Maximum forums                   | 10,000        |
-| Maximum nodes per forum          | 1,000,000     |
-| Maximum message size             | 1 MB          |
-| Maximum queued messages per user | 1,000         |
-| Sync batch size                  | 10,000 hashes |
-| Fetch batch size                 | 1,000 nodes   |
+| Resource                         | Limit                   |
+| -------------------------------- | ----------------------- |
+| Maximum forums                   | 10,000                  |
+| Maximum nodes per forum          | 1,000,000               |
+| Maximum message size             | 1 MB                    |
+| Maximum queued messages per user | 1,000                   |
+| Sync batch size                  | 500 nodes (default 100) |
+| Fetch batch size                 | 1,000 nodes             |
 
 ## Rate Limiting
 

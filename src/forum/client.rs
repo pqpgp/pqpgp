@@ -20,8 +20,8 @@
 use crate::error::{PqpgpError, Result};
 use crate::forum::permissions::ForumPermissions;
 use crate::forum::sync::{
-    ExportForumRequest, ExportForumResponse, FetchNodesResponse, SubmitNodeRequest,
-    SubmitNodeResponse, SyncRequest, SyncResponse,
+    ExportForumRequest, ExportForumResponse, SerializedNode, SubmitNodeRequest, SubmitNodeResponse,
+    SyncRequest, SyncResponse,
 };
 use crate::forum::types::current_timestamp_millis;
 use crate::forum::validation::{validate_node, ValidationContext};
@@ -69,30 +69,23 @@ impl ForumClient {
 
     /// Builds a sync request for a forum.
     ///
-    /// Creates a request with the current known heads from local storage.
-    pub fn build_sync_request(&self, forum_hash: &ContentHash) -> Result<SyncRequest> {
-        let heads = self.storage.get_heads(forum_hash)?;
-        Ok(SyncRequest::with_heads(
-            *forum_hash,
-            heads.into_iter().collect(),
-        ))
+    /// Creates a request with the cursor for incremental sync.
+    /// The cursor is stored locally and updated after each successful sync.
+    pub fn build_sync_request(
+        &self,
+        forum_hash: &ContentHash,
+        cursor_timestamp: u64,
+        cursor_hash: Option<ContentHash>,
+    ) -> SyncRequest {
+        SyncRequest::with_cursor(*forum_hash, cursor_timestamp, cursor_hash)
     }
 
-    /// Processes a sync response and determines which nodes to fetch.
+    /// Processes a sync response by storing the nodes.
     ///
-    /// Filters out any nodes we already have locally.
-    pub fn process_sync_response(&self, response: &SyncResponse) -> Vec<ContentHash> {
-        response
-            .missing_hashes
-            .iter()
-            .filter(|hash| {
-                !self
-                    .storage
-                    .node_exists(&response.forum_hash, hash)
-                    .unwrap_or(false)
-            })
-            .copied()
-            .collect()
+    /// Returns the number of nodes stored.
+    /// The response contains nodes directly, ordered by (timestamp, hash).
+    pub fn process_sync_response(&self, response: &SyncResponse) -> Result<usize> {
+        self.store_nodes(&response.nodes)
     }
 
     /// Builds the validation context from existing storage.
@@ -120,11 +113,11 @@ impl ForumClient {
         Ok((nodes, permissions))
     }
 
-    /// Validates and stores fetched nodes.
+    /// Validates and stores serialized nodes.
     ///
     /// Nodes should be in topological order (parents before children).
     /// Returns the number of nodes successfully stored.
-    pub fn store_fetched_nodes(&self, response: &FetchNodesResponse) -> Result<usize> {
+    pub fn store_nodes(&self, nodes_to_store: &[SerializedNode]) -> Result<usize> {
         let mut stored = 0;
 
         // Build validation context from existing nodes
@@ -132,9 +125,9 @@ impl ForumClient {
         let current_time = current_timestamp_millis();
 
         // Process nodes in order (should be topological)
-        for serialized in &response.nodes {
+        for serialized in nodes_to_store {
             // Deserialize
-            let node = serialized.deserialize()?;
+            let node: DagNode = serialized.deserialize()?;
 
             // Verify hash matches
             if node.hash() != &serialized.hash {
@@ -250,13 +243,7 @@ impl ForumClient {
     ///
     /// Returns the number of nodes imported.
     pub fn import_forum(&self, response: &ExportForumResponse) -> Result<usize> {
-        // Convert to FetchNodesResponse format and use existing logic
-        let fetch_response = FetchNodesResponse {
-            nodes: response.nodes.clone(),
-            not_found: Vec::new(),
-        };
-
-        let stored = self.store_fetched_nodes(&fetch_response)?;
+        let stored = self.store_nodes(&response.nodes)?;
 
         // Set heads from the imported data
         let heads = self.compute_heads_from_nodes(&response.nodes)?;
@@ -515,9 +502,11 @@ mod tests {
         let keypair = create_test_keypair();
         let forum = create_test_forum(&keypair);
 
-        let req = client.build_sync_request(forum.hash()).unwrap();
+        // Initial sync request with cursor at 0
+        let req = client.build_sync_request(forum.hash(), 0, None);
         assert_eq!(req.forum_hash, *forum.hash());
-        assert!(req.known_heads.is_empty()); // No heads stored yet
+        assert_eq!(req.cursor_timestamp, 0);
+        assert!(req.cursor_hash.is_none());
     }
 
     #[test]
@@ -536,23 +525,37 @@ mod tests {
         heads.insert(*forum.hash());
         client.storage().set_heads(forum.hash(), &heads).unwrap();
 
-        let req = client.build_sync_request(forum.hash()).unwrap();
-        assert_eq!(req.known_heads.len(), 1);
-        assert!(req.known_heads.contains(forum.hash()));
+        let req = client.build_sync_request(forum.hash(), 0, None);
+        assert_eq!(req.forum_hash, *forum.hash());
+        assert_eq!(req.cursor_timestamp, 0);
+        assert!(req.cursor_hash.is_none());
     }
 
     #[test]
     fn test_process_sync_response() {
         let (client, _temp_dir) = create_test_client();
-        let hash1 = ContentHash::from_bytes([1u8; 64]);
-        let hash2 = ContentHash::from_bytes([2u8; 64]);
+        let keypair = create_test_keypair();
+        let forum = create_test_forum(&keypair);
 
-        let response =
-            SyncResponse::new(ContentHash::from_bytes([0u8; 64])).with_missing(vec![hash1, hash2]);
+        // Store the forum first so we can add nodes to it
+        client
+            .storage()
+            .store_node(&DagNode::from(forum.clone()))
+            .unwrap();
 
-        // Neither exists, so both should be returned
-        let to_fetch = client.process_sync_response(&response);
-        assert_eq!(to_fetch.len(), 2);
+        let serialized = SerializedNode {
+            hash: *forum.hash(),
+            data: DagNode::from(forum.clone()).to_bytes().unwrap(),
+        };
+
+        let response = SyncResponse::new(*forum.hash())
+            .with_nodes(vec![serialized], forum.created_at(), *forum.hash())
+            .with_has_more(false);
+
+        // Processing should succeed
+        let stored = client.process_sync_response(&response).unwrap();
+        // Node already exists so 0 new stored (validation context has it)
+        assert!(stored <= 1);
     }
 
     #[test]

@@ -209,7 +209,7 @@ PQPGP includes a cryptographically-secured forum system built on a Directed Acyc
 - **Hierarchical Structure**: Forum → Board → Thread → Post
 - **Moderation System**: Forum owners, forum moderators, and board-specific moderators
 - **Self-Describing Data**: DAG can be rebuilt from any backup without external data
-- **Sync Protocol**: Efficient head-based synchronization between clients and relay
+- **Sync Protocol**: Efficient cursor-based synchronization with batching
 - **Client-Side Storage**: Web client maintains local DAG copy for offline access
 - **Causal Ordering**: Moderation actions reference DAG heads to prevent race conditions
 - **RocksDB Storage**: High-performance relay persistence that scales to millions of posts
@@ -268,17 +268,23 @@ Forums support end-to-end encrypted private messages using a Signal-inspired sea
 
 **DAG Sync Protocol:**
 
-The sync protocol uses **heads** (nodes with no children) to efficiently determine what data needs to be transferred:
+The sync protocol uses cursor-based pagination with `(timestamp, hash)` cursors for efficient incremental sync:
 
 ```
-1. Client → Relay:  SyncRequest { forum_hash, known_heads: [...] }
-2. Relay → Client:  SyncResponse { missing_hashes: [...], server_heads: [...] }
-3. Client → Relay:  FetchNodesRequest { hashes: [...] }
-4. Relay → Client:  FetchNodesResponse { nodes: [...] }
-5. Client stores nodes and updates local heads
+1. Client → Relay:  SyncRequest { forum_hash, cursor_timestamp: 0, cursor_hash: null, batch_size: 100 }
+2. Relay → Client:  SyncResponse { nodes: [...], next_cursor_timestamp, next_cursor_hash, has_more }
+3. Client validates and stores nodes
+4. Repeat with next cursor until has_more = false
 ```
 
-This approach minimizes bandwidth by only transferring nodes the client doesn't have. Concurrent posts from different users create valid DAG branches that merge on sync.
+**Benefits:**
+
+- O(log n) relay lookup using timestamp index
+- Fixed-size requests regardless of DAG complexity
+- Nodes returned directly in sync response (no separate fetch step)
+- Cursor handles ties when multiple nodes share a timestamp
+
+Concurrent posts from different users create valid DAG branches that merge on sync.
 
 **Relay JSON-RPC 2.0 API:**
 
@@ -293,7 +299,7 @@ Methods:
   message.send     - Send message to recipient
   message.fetch    - Fetch messages for recipient
   forum.list       - List all forums
-  forum.sync       - Get missing node hashes for sync
+  forum.sync       - Cursor-based sync with batched nodes
   forum.fetch      - Fetch nodes by hash
   forum.submit     - Submit a new node
   forum.export     - Export entire forum DAG (paginated)

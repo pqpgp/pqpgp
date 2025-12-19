@@ -35,14 +35,22 @@ pub use crate::rpc::{
 // =============================================================================
 
 /// Parameters for `forum.sync` method.
+///
+/// Uses cursor-based pagination for efficient incremental sync.
+/// The cursor is `(timestamp, hash)` which provides O(log n) seek
+/// and handles ties when multiple nodes have the same timestamp.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncParams {
     /// Forum hash (hex string).
     pub forum_hash: String,
-    /// Known heads (hex strings).
-    pub known_heads: Vec<String>,
-    /// Maximum results to return.
-    pub max_results: Option<usize>,
+    /// Cursor timestamp: fetch nodes with timestamp >= this value.
+    /// Use 0 for initial sync to get all nodes.
+    pub cursor_timestamp: u64,
+    /// Cursor hash (hex string): if provided, skip nodes at `cursor_timestamp`
+    /// until after this hash. Handles ties when multiple nodes share a timestamp.
+    pub cursor_hash: Option<String>,
+    /// Maximum number of nodes to return in this batch.
+    pub batch_size: Option<usize>,
 }
 
 /// Parameters for `forum.fetch` method.
@@ -94,33 +102,47 @@ pub struct ForumInfo {
 }
 
 /// Result from `forum.sync` method.
+///
+/// Contains a batch of nodes and cursor for the next request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncResult {
     /// Forum hash (hex string).
     pub forum_hash: String,
-    /// Missing node hashes (hex strings).
-    pub missing_hashes: Vec<String>,
-    /// Server's current heads (hex strings).
-    pub server_heads: Vec<String>,
-    /// Whether there are more missing nodes.
+    /// Nodes in this batch, ordered by (timestamp, hash).
+    pub nodes: Vec<NodeData>,
+    /// Cursor timestamp for the next request.
+    /// This is the timestamp of the last node in the batch.
+    pub next_cursor_timestamp: u64,
+    /// Cursor hash (hex string) for the next request.
+    /// This is the hash of the last node in the batch.
+    pub next_cursor_hash: Option<String>,
+    /// Whether there are more nodes available after this batch.
     pub has_more: bool,
+    /// Total number of nodes in the forum (optional, for progress display).
+    pub total_nodes: Option<usize>,
 }
 
 impl SyncResult {
-    /// Parses missing hashes into ContentHash values.
-    pub fn parse_missing_hashes(&self) -> Vec<ContentHash> {
-        self.missing_hashes
-            .iter()
-            .filter_map(|h| ContentHash::from_hex(h).ok())
-            .collect()
+    /// Deserializes all nodes in the result.
+    pub fn deserialize_nodes(&self) -> Result<Vec<(ContentHash, DagNode)>> {
+        let mut results = Vec::with_capacity(self.nodes.len());
+        for node_data in &self.nodes {
+            let hash = ContentHash::from_hex(&node_data.hash)
+                .map_err(|e| PqpgpError::Serialization(format!("Invalid hash: {}", e)))?;
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(&node_data.data)
+                .map_err(|e| PqpgpError::Serialization(format!("Invalid base64: {}", e)))?;
+            let node = DagNode::from_bytes(&data)?;
+            results.push((hash, node));
+        }
+        Ok(results)
     }
 
-    /// Parses server heads into ContentHash values.
-    pub fn parse_server_heads(&self) -> Vec<ContentHash> {
-        self.server_heads
-            .iter()
-            .filter_map(|h| ContentHash::from_hex(h).ok())
-            .collect()
+    /// Parses the next cursor hash.
+    pub fn parse_next_cursor_hash(&self) -> Option<ContentHash> {
+        self.next_cursor_hash
+            .as_ref()
+            .and_then(|h| ContentHash::from_hex(h).ok())
     }
 }
 
@@ -232,17 +254,25 @@ impl ForumRpcClient {
             .build_request("forum.list", serde_json::json!({}))
     }
 
-    /// Builds a `forum.sync` request.
+    /// Builds a `forum.sync` request with cursor-based pagination.
+    ///
+    /// # Arguments
+    /// * `forum_hash` - The forum to sync
+    /// * `cursor_timestamp` - Fetch nodes with timestamp >= this value (0 for initial sync)
+    /// * `cursor_hash` - Skip nodes at cursor_timestamp until after this hash (handles ties)
+    /// * `batch_size` - Maximum nodes to return in this batch
     pub fn build_sync_request(
         &self,
         forum_hash: &ContentHash,
-        known_heads: &[ContentHash],
-        max_results: Option<usize>,
+        cursor_timestamp: u64,
+        cursor_hash: Option<&ContentHash>,
+        batch_size: Option<usize>,
     ) -> RpcRequest {
         let params = SyncParams {
             forum_hash: forum_hash.to_hex(),
-            known_heads: known_heads.iter().map(|h| h.to_hex()).collect(),
-            max_results,
+            cursor_timestamp,
+            cursor_hash: cursor_hash.map(|h| h.to_hex()),
+            batch_size,
         };
         self.inner.build_request("forum.sync", params)
     }
@@ -338,15 +368,16 @@ mod tests {
     fn test_forum_rpc_client_sync_request() {
         let client = ForumRpcClient::new("http://localhost:3001/rpc");
         let forum_hash = ContentHash::from_bytes([1u8; 64]);
-        let heads = vec![ContentHash::from_bytes([2u8; 64])];
+        let cursor_hash = ContentHash::from_bytes([2u8; 64]);
 
-        let request = client.build_sync_request(&forum_hash, &heads, Some(100));
+        let request = client.build_sync_request(&forum_hash, 12345, Some(&cursor_hash), Some(100));
 
         assert_eq!(request.method, "forum.sync");
         let params: SyncParams = serde_json::from_value(request.params).unwrap();
         assert_eq!(params.forum_hash, forum_hash.to_hex());
-        assert_eq!(params.known_heads.len(), 1);
-        assert_eq!(params.max_results, Some(100));
+        assert_eq!(params.cursor_timestamp, 12345);
+        assert_eq!(params.cursor_hash, Some(cursor_hash.to_hex()));
+        assert_eq!(params.batch_size, Some(100));
     }
 
     #[test]
@@ -404,16 +435,21 @@ mod tests {
     fn test_sync_result_parsing() {
         let result = SyncResult {
             forum_hash: "ab".repeat(64),
-            missing_hashes: vec!["cd".repeat(64), "ef".repeat(64)],
-            server_heads: vec!["12".repeat(64)],
-            has_more: false,
+            nodes: vec![NodeData {
+                hash: "cd".repeat(64),
+                data: base64::engine::general_purpose::STANDARD.encode(&[1, 2, 3]),
+            }],
+            next_cursor_timestamp: 12345,
+            next_cursor_hash: Some("ef".repeat(64)),
+            has_more: true,
+            total_nodes: Some(100),
         };
 
-        let missing = result.parse_missing_hashes();
-        assert_eq!(missing.len(), 2);
-
-        let heads = result.parse_server_heads();
-        assert_eq!(heads.len(), 1);
+        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.next_cursor_timestamp, 12345);
+        assert!(result.parse_next_cursor_hash().is_some());
+        assert!(result.has_more);
+        assert_eq!(result.total_nodes, Some(100));
     }
 
     #[test]
