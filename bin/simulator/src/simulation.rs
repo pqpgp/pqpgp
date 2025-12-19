@@ -64,11 +64,6 @@ impl Simulation {
         self.boards.first()
     }
 
-    /// Returns the number of boards created.
-    pub fn board_count(&self) -> usize {
-        self.boards.len()
-    }
-
     /// Returns Alice's user info.
     pub fn alice(&self) -> &SimulatedUser {
         &self.alice

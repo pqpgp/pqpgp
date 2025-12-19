@@ -41,9 +41,6 @@ const BOB_RELAY_PORT: u16 = 4002;
 /// Sync interval for peer sync (seconds)
 const SYNC_INTERVAL_SECS: u64 = 1;
 
-/// Maximum number of boards to create (realistic limit)
-const MAX_BOARDS: usize = 100;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize tracing with detailed output
@@ -215,30 +212,21 @@ async fn run_alice_simulation(simulation: Arc<RwLock<Simulation>>) {
         action_count += 1;
 
         // Randomly decide what to do: create board (5%), create thread (20%), or post (75%)
-        // Board creation is capped at MAX_BOARDS to simulate realistic forum usage
         let action = fastrand::u8(0..100);
 
         let mut sim = simulation.write().await;
 
-        // Check if we've hit the board limit
-        let board_count = sim.board_count();
-
-        if action < 5 && board_count < MAX_BOARDS {
-            // Create a new board (only if under limit)
+        if action < 5 {
+            // Create a new board
             let name = format!("Alice Board {}", action_count);
-            info!(
-                "[Alice] Creating board: {} ({}/{})",
-                name,
-                board_count + 1,
-                MAX_BOARDS
-            );
+            info!("[Alice] Creating board: {}", name);
             if let Err(e) = sim
                 .alice_create_board(&name, "A board created by Alice")
                 .await
             {
                 warn!("[Alice] Failed to create board: {}", e);
             }
-        } else if action < 25 || (action < 5 && board_count >= MAX_BOARDS) {
+        } else if action < 25 {
             // Create a new thread in a random board
             let title = format!("Alice's Thread #{}", action_count);
             let body = format!("Discussion topic {} from Alice", action_count);
