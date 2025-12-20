@@ -43,6 +43,7 @@ mod pm_sealed;
 mod post;
 pub mod rpc_client;
 mod sealed_message;
+pub mod signed_heads;
 pub mod state;
 pub mod storage;
 pub mod sync;

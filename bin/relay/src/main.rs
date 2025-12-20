@@ -21,6 +21,7 @@
 //! ```
 
 mod forum;
+mod identity;
 mod peer_sync;
 mod rate_limit;
 mod rpc;
@@ -30,9 +31,11 @@ use axum::{
     Json, Router,
 };
 use forum::PersistentForumState;
+use identity::RelayIdentity;
 use rate_limit::RateLimitLayer;
 use rpc::{AppState, RelayState, SharedForumState, SharedRelayState};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -83,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load forum state from disk
     let forum_state: SharedForumState = match data_dir {
-        Some(dir) => match PersistentForumState::with_data_dir(&dir) {
+        Some(ref dir) => match PersistentForumState::with_data_dir(dir) {
             Ok(persistent) => {
                 info!(
                     "Forum persistence initialized from {} with {} forums, {} nodes",
@@ -115,10 +118,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
+    // Initialize relay identity for signing heads statements
+    let identity_data_dir = data_dir
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let relay_identity = match RelayIdentity::load_or_generate(&identity_data_dir) {
+        Ok(identity) => {
+            info!(
+                "Relay identity: {} ({})",
+                identity.fingerprint_short(),
+                identity.fingerprint_hex()
+            );
+            Arc::new(identity)
+        }
+        Err(e) => {
+            error!("Failed to initialize relay identity: {}", e);
+            panic!("Cannot start relay without identity: {}", e);
+        }
+    };
+
     // Combined app state
     let app_state = AppState {
         relay: relay_state,
         forum: forum_state.clone(),
+        identity: relay_identity,
     };
 
     // Create rate limit layer
@@ -158,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  forum.fetch     - Fetch nodes by hash");
     info!("  forum.submit    - Submit a new node");
     info!("  forum.export    - Export forum DAG (paginated)");
+    info!("  forum.heads     - Get signed DAG heads (transparency)");
     info!("");
     info!("System Methods:");
     info!("  relay.health    - Health check");

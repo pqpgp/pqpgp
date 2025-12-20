@@ -77,6 +77,7 @@ pub async fn handle_rpc(
         "forum.fetch" => forum::handle_fetch(&state.forum, request.params),
         "forum.submit" => forum::handle_submit(&state.forum, request.params),
         "forum.export" => forum::handle_export(&state.forum, request.params),
+        "forum.heads" => forum::handle_heads(&state.forum, &state.identity, request.params),
 
         // System methods
         "relay.health" => system::handle_health(),

@@ -1,15 +1,17 @@
 //! Forum-related RPC handlers.
 
 use super::{parse_params, to_json};
+use crate::identity::RelayIdentity;
 use crate::rpc::state::{acquire_forum_read, acquire_forum_write, SharedForumState};
 use base64::Engine;
 use pqpgp::forum::constants::{MAX_EXPORT_PAGE_SIZE, MAX_FETCH_BATCH_SIZE, MAX_NODES_PER_FORUM};
 use pqpgp::forum::dag_ops::nodes_in_topological_order;
 use pqpgp::forum::permissions::ForumPermissions;
 use pqpgp::forum::rpc_client::{
-    ExportParams, ExportResult, FetchParams, FetchResult, ForumInfo, NodeData, SubmitParams,
-    SubmitResult, SyncParams, SyncResult,
+    ExportParams, ExportResult, FetchParams, FetchResult, ForumInfo, HeadsParams, HeadsResult,
+    NodeData, SignedHeadsData, SubmitParams, SubmitResult, SyncParams, SyncResult,
 };
+use pqpgp::forum::signed_heads::{HeadsStatement, SignedHeadsStatement};
 use pqpgp::forum::sync::{DEFAULT_SYNC_BATCH_SIZE, MAX_SYNC_BATCH_SIZE};
 use pqpgp::forum::types::current_timestamp_millis;
 use pqpgp::forum::{
@@ -326,6 +328,90 @@ pub fn handle_export(state: &SharedForumState, params: Value) -> Result<Value, R
         nodes,
         total_nodes,
         has_more,
+    };
+    to_json(result)
+}
+
+/// Handles `forum.heads` - returns signed heads statements for transparency.
+///
+/// Clients can compare statements from multiple relays to detect node withholding.
+pub fn handle_heads(
+    state: &SharedForumState,
+    identity: &RelayIdentity,
+    params: Value,
+) -> Result<Value, RpcError> {
+    let params: HeadsParams = parse_params(params)?;
+
+    let relay = acquire_forum_read(state);
+    let current_time = current_timestamp_millis();
+
+    // Determine which forums to include
+    let forum_hashes: Vec<ContentHash> = if let Some(hash_str) = params.forum_hash {
+        let hash = ContentHash::from_hex(&hash_str)
+            .map_err(|_| RpcError::invalid_params("Invalid forum hash"))?;
+        if relay.get_forum(&hash).is_some() {
+            vec![hash]
+        } else {
+            return Err(RpcError::not_found("Forum not found"));
+        }
+    } else {
+        relay.forums().keys().cloned().collect()
+    };
+
+    let mut statements = Vec::with_capacity(forum_hashes.len());
+
+    for forum_hash in forum_hashes {
+        if let Some(forum) = relay.get_forum(&forum_hash) {
+            // Get sorted heads for deterministic signing
+            let head_hashes: Vec<ContentHash> = forum.heads.iter().cloned().collect();
+
+            // Build the statement
+            let statement = HeadsStatement::new(
+                forum_hash,
+                head_hashes.clone(),
+                forum.node_count(),
+                current_time,
+                identity.fingerprint(),
+            );
+
+            // Sign the statement
+            let signed = SignedHeadsStatement::sign(
+                statement.clone(),
+                identity.private_key(),
+                identity.public_key(),
+            )
+            .map_err(|e| RpcError::internal_error(format!("Signing failed: {}", e)))?;
+
+            // Convert to RPC format
+            statements.push(SignedHeadsData {
+                forum_hash: forum_hash.to_hex(),
+                head_hashes: signed
+                    .statement
+                    .head_hashes
+                    .iter()
+                    .map(|h| h.to_hex())
+                    .collect(),
+                node_count: signed.statement.node_count,
+                timestamp: signed.statement.timestamp,
+                version: signed.statement.version,
+                signature: base64::engine::general_purpose::STANDARD
+                    .encode(signed.signature.signature_bytes()),
+                relay_public_key: base64::engine::general_purpose::STANDARD
+                    .encode(&signed.relay_public_key),
+                relay_fingerprint: hex::encode(&signed.statement.relay_fingerprint),
+            });
+        }
+    }
+
+    info!(
+        "forum.heads: {} statements signed by {}",
+        statements.len(),
+        identity.fingerprint_short()
+    );
+
+    let result = HeadsResult {
+        statements,
+        relay_fingerprint: identity.fingerprint_hex(),
     };
     to_json(result)
 }

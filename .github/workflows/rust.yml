@@ -50,18 +50,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       # Cache Cargo dependencies and build artifacts to speed up subsequent runs
-      # This significantly reduces build times by reusing previously downloaded crates
-      - name: Cache cargo + target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+      # Using rust-cache which intelligently handles Rust's large target directories
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       # Enforce consistent code formatting across the codebase
       # Runs first to fail fast on simple formatting issues

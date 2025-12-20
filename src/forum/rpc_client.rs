@@ -221,6 +221,48 @@ pub struct StatsResult {
 }
 
 // =============================================================================
+// Signed Heads RPC Types
+// =============================================================================
+
+/// Parameters for `forum.heads` method.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeadsParams {
+    /// Forum hash (hex string). If None, returns heads for all forums.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forum_hash: Option<String>,
+}
+
+/// Result from `forum.heads` method.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeadsResult {
+    /// Signed heads statements for requested forum(s).
+    pub statements: Vec<SignedHeadsData>,
+    /// Relay identity fingerprint (hex string).
+    pub relay_fingerprint: String,
+}
+
+/// Serializable form of SignedHeadsStatement for RPC transport.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedHeadsData {
+    /// Forum hash (hex string).
+    pub forum_hash: String,
+    /// Head hashes (hex strings, sorted).
+    pub head_hashes: Vec<String>,
+    /// Total node count.
+    pub node_count: usize,
+    /// Timestamp (Unix millis).
+    pub timestamp: u64,
+    /// Statement version.
+    pub version: u8,
+    /// Base64-encoded signature.
+    pub signature: String,
+    /// Base64-encoded relay public key.
+    pub relay_public_key: String,
+    /// Relay fingerprint (hex string).
+    pub relay_fingerprint: String,
+}
+
+// =============================================================================
 // Forum RPC Client Helper
 // =============================================================================
 
@@ -320,6 +362,17 @@ impl ForumRpcClient {
             .build_request("forum.stats", serde_json::json!({}))
     }
 
+    /// Builds a `forum.heads` request.
+    ///
+    /// # Arguments
+    /// * `forum_hash` - Optional forum hash. If None, returns heads for all forums.
+    pub fn build_heads_request(&self, forum_hash: Option<&ContentHash>) -> RpcRequest {
+        let params = HeadsParams {
+            forum_hash: forum_hash.map(|h| h.to_hex()),
+        };
+        self.inner.build_request("forum.heads", params)
+    }
+
     /// Parses a `forum.list` response.
     pub fn parse_list_response(&self, response: RpcResponse) -> Result<Vec<ForumInfo>> {
         response.into_typed_result()
@@ -347,6 +400,11 @@ impl ForumRpcClient {
 
     /// Parses a `forum.stats` response.
     pub fn parse_stats_response(&self, response: RpcResponse) -> Result<StatsResult> {
+        response.into_typed_result()
+    }
+
+    /// Parses a `forum.heads` response.
+    pub fn parse_heads_response(&self, response: RpcResponse) -> Result<HeadsResult> {
         response.into_typed_result()
     }
 }

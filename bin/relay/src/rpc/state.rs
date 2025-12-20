@@ -1,6 +1,7 @@
 //! RPC server state types.
 
 use crate::forum::persistence::PersistentForumState;
+use crate::identity::RelayIdentity;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -47,11 +48,15 @@ pub type SharedRelayState = Arc<RwLock<RelayState>>;
 /// Thread-safe forum state.
 pub type SharedForumState = Arc<RwLock<PersistentForumState>>;
 
+/// Shared relay identity.
+pub type SharedRelayIdentity = Arc<RelayIdentity>;
+
 /// Combined application state.
 #[derive(Clone)]
 pub struct AppState {
     pub relay: SharedRelayState,
     pub forum: SharedForumState,
+    pub identity: SharedRelayIdentity,
 }
 
 // =============================================================================
