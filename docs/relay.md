@@ -121,6 +121,7 @@ All RPC operations use the `/rpc` endpoint:
 | `forum.fetch`  | Fetch nodes by hash                        |
 | `forum.submit` | Submit a new node (including ForumGenesis) |
 | `forum.export` | Export entire forum DAG (paginated)        |
+| `forum.heads`  | Get signed DAG heads for transparency      |
 
 #### System Methods
 
@@ -399,6 +400,53 @@ Nodes are returned directly in the response, eliminating the need for separate f
 }
 ```
 
+#### Signed Heads (Transparency)
+
+Returns cryptographically signed statements of the relay's current DAG state.
+Clients can compare statements from multiple relays to detect node withholding.
+
+```json
+// Request - all forums
+{"jsonrpc": "2.0", "method": "forum.heads", "params": {}, "id": 1}
+
+// Request - specific forum
+{
+  "jsonrpc": "2.0",
+  "method": "forum.heads",
+  "params": {"forum_hash": "abc123..."},
+  "id": 1
+}
+
+// Response
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "statements": [
+      {
+        "forum_hash": "abc123...",
+        "head_hashes": ["def456...", "ghi789..."],
+        "node_count": 150,
+        "timestamp": 1700000000000,
+        "version": 1,
+        "signature": "<base64-ml-dsa-87-signature>",
+        "relay_public_key": "<base64-public-key>",
+        "relay_fingerprint": "aabbccdd..."
+      }
+    ],
+    "relay_fingerprint": "aabbccdd..."
+  },
+  "id": 1
+}
+```
+
+**Transparency Protocol:**
+
+1. Each relay generates a persistent ML-DSA-87 identity on first run
+2. `forum.heads` returns signed statements of current DAG heads
+3. Clients query multiple relays and compare statements
+4. If heads differ, fetch missing nodes from the relay with more heads
+5. Signatures prevent relays from denying their claimed state
+
 #### Health Check
 
 ```json
@@ -456,11 +504,18 @@ Nodes are returned directly in the response, eliminating the need for separate f
 
 ```
 pqpgp_relay_data/
+├── relay_identity.key           # ML-DSA-87 keypair for signing heads
 └── forum_db/                    # RocksDB database
     ├── Column: nodes            # {forum_hash}:{node_hash} → DagNode
     ├── Column: forums           # {forum_hash} → ForumMetadata
     └── Column: meta             # forum_list → [forum_hashes]
 ```
+
+**Relay Identity:**
+- Generated automatically on first run
+- Persists across restarts (same fingerprint)
+- Used to sign `forum.heads` statements
+- Protect this file - it contains the relay's private key
 
 ## Resource Limits
 
@@ -520,6 +575,7 @@ pqpgp-relay --bind 0.0.0.0:3002 \
 ```
 bin/relay/src/
 ├── main.rs              # Server entry point, routing
+├── identity.rs          # Relay identity management (ML-DSA-87 keypair)
 ├── rpc/                 # Unified JSON-RPC 2.0 handler
 │   ├── mod.rs           # Module exports
 │   ├── state.rs         # Relay state types and RwLock helpers
@@ -527,7 +583,7 @@ bin/relay/src/
 │       ├── mod.rs       # Main dispatcher, helper functions
 │       ├── user.rs      # user.* methods
 │       ├── message.rs   # message.* methods
-│       ├── forum.rs     # forum.* methods
+│       ├── forum.rs     # forum.* methods (including forum.heads)
 │       └── system.rs    # relay.* methods
 ├── forum/               # Forum DAG storage module
 │   ├── mod.rs           # Module exports
