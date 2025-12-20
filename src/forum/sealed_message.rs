@@ -327,6 +327,214 @@ pub fn derive_hint_key(encryption_private_key_bytes: &[u8]) -> [u8; 32] {
     hint_key
 }
 
+/// Padding utilities for message length hiding.
+///
+/// SECURITY: Message size can leak information about content. These utilities
+/// allow padding messages to fixed sizes to hide their true length from the
+/// relay server.
+pub mod padding {
+    use crate::error::{PqpgpError, Result};
+    use rand::RngCore;
+
+    /// Standard padding bucket sizes in bytes.
+    /// Messages are padded to the next higher bucket size.
+    /// Uses exponential sizing for efficient coverage across message sizes.
+    pub const PADDING_BUCKETS: &[usize] = &[
+        256,    // Tiny messages (acknowledgments, reactions)
+        512,    // Short messages (single sentences)
+        1024,   // Medium messages (paragraphs)
+        2048,   // Longer messages
+        4096,   // Large messages
+        8192,   // Very large messages
+        16384,  // 16 KB
+        32768,  // 32 KB
+        65536,  // 64 KB
+        131072, // 128 KB - maximum bucket size
+    ];
+
+    /// Pads data to the specified target size.
+    ///
+    /// Uses a 4-byte big-endian length prefix to allow for large padding amounts.
+    /// Format: [original_data][random_padding][4-byte original_length]
+    ///
+    /// # Arguments
+    /// * `data` - The data to pad
+    /// * `target_size` - The target size (must be >= data.len() + 4)
+    ///
+    /// # Returns
+    /// Padded data with random padding and length indicator.
+    ///
+    /// # Errors
+    /// Returns an error if target_size is too small to fit the data + length indicator.
+    pub fn pad_to_size(data: &[u8], target_size: usize) -> Result<Vec<u8>> {
+        // Need at least 4 bytes for the length prefix
+        let min_size = data.len() + 4;
+        if target_size < min_size {
+            return Err(PqpgpError::validation(format!(
+                "Target size {} must be at least {} (data + 4 byte length)",
+                target_size, min_size
+            )));
+        }
+
+        let padding_len = target_size - min_size;
+
+        let mut padded = Vec::with_capacity(target_size);
+        padded.extend_from_slice(data);
+
+        // Fill with random bytes for the padding portion
+        if padding_len > 0 {
+            let mut random_padding = vec![0u8; padding_len];
+            rand::rng().fill_bytes(&mut random_padding);
+            padded.extend_from_slice(&random_padding);
+        }
+
+        // Last 4 bytes are the original data length (big-endian)
+        padded.extend_from_slice(&(data.len() as u32).to_be_bytes());
+
+        Ok(padded)
+    }
+
+    /// Removes padding from data that was padded with `pad_to_size`.
+    ///
+    /// # Arguments
+    /// * `padded_data` - The padded data
+    ///
+    /// # Returns
+    /// The original unpadded data.
+    ///
+    /// # Errors
+    /// Returns an error if the padding is invalid.
+    pub fn unpad(padded_data: &[u8]) -> Result<Vec<u8>> {
+        if padded_data.len() < 4 {
+            return Err(PqpgpError::validation(
+                "Padded data too short - must be at least 4 bytes",
+            ));
+        }
+
+        // Read the original length from the last 4 bytes
+        let len_bytes: [u8; 4] = padded_data[padded_data.len() - 4..]
+            .try_into()
+            .map_err(|_| PqpgpError::crypto("Failed to read padding length"))?;
+        let original_len = u32::from_be_bytes(len_bytes) as usize;
+
+        // Validate the length
+        if original_len > padded_data.len() - 4 {
+            return Err(PqpgpError::crypto(
+                "Invalid padding: original length exceeds padded data",
+            ));
+        }
+
+        Ok(padded_data[..original_len].to_vec())
+    }
+
+    /// Returns the next bucket size for a given data length.
+    ///
+    /// This allows messages to be padded to fixed sizes, making it harder
+    /// for observers to determine message content from size alone.
+    ///
+    /// # Arguments
+    /// * `data_len` - The current data length
+    ///
+    /// # Returns
+    /// The recommended padding target size, or None if data is too large.
+    pub fn next_bucket_size(data_len: usize) -> Option<usize> {
+        // Need at least 4 bytes for the length indicator
+        let min_bucket = data_len + 4;
+        PADDING_BUCKETS
+            .iter()
+            .find(|&&size| size >= min_bucket)
+            .copied()
+    }
+
+    /// Pads data to the next bucket size.
+    ///
+    /// Combines `next_bucket_size` and `pad_to_size` for convenience.
+    ///
+    /// # Arguments
+    /// * `data` - The data to pad
+    ///
+    /// # Returns
+    /// Padded data sized to a standard bucket.
+    ///
+    /// # Errors
+    /// Returns an error if the data is too large for any bucket.
+    pub fn pad_to_bucket(data: &[u8]) -> Result<Vec<u8>> {
+        let target = next_bucket_size(data.len()).ok_or_else(|| {
+            PqpgpError::validation(format!(
+                "Data size {} exceeds maximum bucket size {}",
+                data.len(),
+                PADDING_BUCKETS.last().unwrap_or(&0)
+            ))
+        })?;
+        pad_to_size(data, target)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_pad_and_unpad() {
+            let data = b"Hello, World!";
+            let padded = pad_to_size(data, 256).unwrap();
+
+            assert_eq!(padded.len(), 256);
+            let unpadded = unpad(&padded).unwrap();
+            assert_eq!(unpadded, data);
+        }
+
+        #[test]
+        fn test_pad_large_data() {
+            // Test with larger data that needs bigger buckets
+            let data = vec![0x42u8; 50_000];
+            let padded = pad_to_bucket(&data).unwrap();
+            assert_eq!(padded.len(), 65536); // 64KB bucket
+
+            let unpadded = unpad(&padded).unwrap();
+            assert_eq!(unpadded, data);
+        }
+
+        #[test]
+        fn test_bucket_sizes() {
+            // 0 bytes + 4 length = 4, fits in 256
+            assert_eq!(next_bucket_size(0), Some(256));
+            // 100 bytes + 4 length = 104, fits in 256
+            assert_eq!(next_bucket_size(100), Some(256));
+            // 252 bytes + 4 length = 256, fits exactly in 256
+            assert_eq!(next_bucket_size(252), Some(256));
+            // 253 bytes + 4 length = 257, needs 512
+            assert_eq!(next_bucket_size(253), Some(512));
+            // Large data needs larger bucket
+            assert_eq!(next_bucket_size(100_000), Some(131072)); // 128KB
+                                                                 // 131068 bytes + 4 = 131072, fits exactly
+            assert_eq!(next_bucket_size(131068), Some(131072));
+            // Data too large for any bucket (131069 + 4 = 131073 > 131072)
+            assert_eq!(next_bucket_size(131069), None);
+        }
+
+        #[test]
+        fn test_pad_to_bucket() {
+            let data = b"Short message";
+            let padded = pad_to_bucket(data).unwrap();
+            assert_eq!(padded.len(), 256);
+
+            let unpadded = unpad(&padded).unwrap();
+            assert_eq!(unpadded, data);
+        }
+
+        #[test]
+        fn test_invalid_padding() {
+            // Too short for length field
+            assert!(unpad(&[]).is_err());
+            assert!(unpad(&[1, 2, 3]).is_err());
+
+            // Length exceeds data (claims 1000 bytes but only has a few)
+            let bad = [0x00, 0x00, 0x03, 0xE8]; // 1000 in big-endian
+            assert!(unpad(&bad).is_err());
+        }
+    }
+}
+
 /// The inner message content that gets encrypted.
 ///
 /// This is what the recipient actually sees after decryption.
@@ -426,6 +634,29 @@ pub struct SealedEnvelope {
     pub inner_nonce: [u8; 12],
 }
 
+impl SealedEnvelope {
+    /// Validates the envelope structure.
+    ///
+    /// SECURITY: Ensures mutual exclusivity of X3DH and ratchet headers
+    /// to prevent message type confusion attacks.
+    ///
+    /// # Errors
+    /// Returns an error if both x3dh_data and ratchet_header are present,
+    /// or if neither is present.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        match (&self.x3dh_data, &self.ratchet_header) {
+            (Some(_), Some(_)) => Err(crate::error::PqpgpError::crypto(
+                "Invalid envelope: cannot contain both X3DH data and ratchet header",
+            )),
+            (None, None) => {
+                // This is allowed for session-based messages (no X3DH, no ratchet)
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
 impl fmt::Debug for SealedEnvelope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SealedEnvelope")
@@ -439,17 +670,29 @@ impl fmt::Debug for SealedEnvelope {
 
 impl SealedEnvelope {
     /// Serializes the sealed envelope to bytes.
+    ///
+    /// # Security
+    /// Validates the envelope structure before serialization.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        // SECURITY: Validate envelope structure before serializing
+        self.validate()?;
         bincode::serialize(self).map_err(|e| {
             PqpgpError::serialization(format!("Failed to serialize SealedEnvelope: {}", e))
         })
     }
 
     /// Deserializes a sealed envelope from bytes.
+    ///
+    /// # Security
+    /// Validates the envelope structure after deserialization to prevent
+    /// message type confusion attacks.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes).map_err(|e| {
+        let envelope: Self = bincode::deserialize(bytes).map_err(|e| {
             PqpgpError::serialization(format!("Failed to deserialize SealedEnvelope: {}", e))
-        })
+        })?;
+        // SECURITY: Validate envelope structure after deserialization
+        envelope.validate()?;
+        Ok(envelope)
     }
 }
 

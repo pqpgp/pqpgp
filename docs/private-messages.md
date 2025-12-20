@@ -196,15 +196,17 @@ InnerMessage {
 
 ## Security Properties
 
-| Property                 | How Achieved                         |
-| ------------------------ | ------------------------------------ |
-| Content hidden           | AES-256-GCM encryption               |
-| Sender hidden            | Identity inside sealed envelope      |
-| Recipient hidden         | Trial decryption + opaque hints      |
-| Forward secrecy          | One-time prekeys + symmetric ratchet |
-| Post-compromise security | DH ratchet with ML-KEM               |
-| Quantum resistance       | ML-KEM-1024 for all key exchanges    |
-| Deniability              | No signatures on message content     |
+| Property                 | How Achieved                                    |
+| ------------------------ | ----------------------------------------------- |
+| Content hidden           | AES-256-GCM encryption with conversation ID AAD |
+| Sender hidden            | Identity inside sealed envelope                 |
+| Recipient hidden         | Trial decryption + opaque hints                 |
+| Forward secrecy          | One-time prekeys + symmetric ratchet            |
+| Post-compromise security | DH ratchet with ML-KEM                          |
+| Quantum resistance       | ML-KEM-1024 for all key exchanges               |
+| Deniability              | No signatures on message content                |
+| Length hiding            | Mandatory bucket-based message padding          |
+| Conversation binding     | Conversation ID as authenticated data (AAD)     |
 
 ## Prekey Management
 
@@ -283,9 +285,12 @@ Sessions are stored locally and persist across restarts.
 ### What's NOT Protected
 
 - **Timing analysis**: Relay sees when messages are posted
-- **Size analysis**: Message sizes are visible
 - **Endpoint compromise**: If your device is owned, keys are exposed
 - **Traffic analysis**: Relay sees access patterns
+
+### Mitigated Threats
+
+- **Size analysis**: Messages are padded to fixed bucket sizes (256B to 128KB) to hide true length
 
 ### Trust Assumptions
 
@@ -294,12 +299,88 @@ Sessions are stored locally and persist across restarts.
 - AES-256-GCM is secure
 - Random number generator is unpredictable
 
+## Security Mechanisms
+
+### Message Padding
+
+All messages are padded to fixed bucket sizes before encryption to prevent size-based analysis:
+
+| Bucket Size | Use Case                   |
+| ----------- | -------------------------- |
+| 256 bytes   | Acknowledgments, reactions |
+| 512 bytes   | Short messages             |
+| 1 KB        | Medium messages            |
+| 2 KB        | Longer messages            |
+| 4 KB        | Large messages             |
+| 8 KB        | Very large messages        |
+| 16-128 KB   | Extended content           |
+
+Padding format: `[original_data][random_padding][4-byte length]`
+
+### Conversation Binding
+
+Messages are cryptographically bound to their conversation using AES-GCM's Additional Authenticated Data (AAD):
+
+```
+encrypted_inner = AES-256-GCM(
+    key = conversation_key,
+    plaintext = padded_inner_message,
+    aad = conversation_id  // Binds message to this conversation
+)
+```
+
+This prevents:
+
+- Message reassignment attacks (moving a message to a different conversation)
+- Conversation confusion attacks
+
+### Envelope Validation
+
+Sealed envelopes are validated to prevent message type confusion:
+
+- Envelopes cannot contain both X3DH data AND ratchet headers
+- Malformed envelopes are rejected before processing
+
+### Timing-Safe Hint Checking
+
+When scanning messages, identity selection is randomized to prevent timing side-channels:
+
+- All hint keys are checked regardless of early matches
+- When multiple identities match, one is selected randomly
+- Prevents leaking which identity index matched
+
+### Decryption Failure Classification
+
+Decryption failures are categorized to detect potential attacks:
+
+| Failure Type         | Meaning                         | Action                     |
+| -------------------- | ------------------------------- | -------------------------- |
+| AuthenticationFailed | Message corrupted or tampered   | Alert user, log for review |
+| EnvelopeParseFailed  | Malformed message structure     | Reject silently            |
+| HintFalsePositive    | Hint matched incorrectly (rare) | Reject silently            |
+| DecryptionError      | Generic crypto failure          | Log for debugging          |
+
+### Ratchet Initialization Guard
+
+Double Ratchet initialization is protected against race conditions:
+
+- Guard flag prevents concurrent initialization attempts
+- Initialization is atomic - completes fully or rolls back
+
+### Skipped Message Key Limits
+
+To prevent DoS attacks via out-of-order messages:
+
+- Maximum 1000 skipped message keys stored per session
+- Skipped keys expire after 24 hours
+- Requests exceeding limits are rejected
+
 ## Module Structure
 
 ```
 src/forum/
 ├── encryption_identity.rs  # EncryptionIdentity node, prekey bundles
-├── sealed_message.rs       # SealedPrivateMessage node type
+├── sealed_message.rs       # SealedPrivateMessage node type, padding utilities
 ├── pm_sealed.rs            # Seal/unseal functions, X3DH integration
 ├── pm_scanner.rs           # Efficient message scanning with hints
 └── conversation.rs         # ConversationSession, Double Ratchet state

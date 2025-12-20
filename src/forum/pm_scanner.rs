@@ -38,6 +38,37 @@ use crate::forum::types::ContentHash;
 use std::collections::HashSet;
 use tracing::warn;
 
+/// Categorized decryption failure for better error diagnosis.
+#[derive(Debug, Clone)]
+pub enum DecryptionFailure {
+    /// Authentication failed - message was corrupted or tampered with.
+    /// The recipient should be alerted about this.
+    AuthenticationFailed(ContentHash, String),
+    /// Envelope parsing failed - malformed message structure.
+    EnvelopeParseFailed(ContentHash, String),
+    /// Key derivation or decryption failed.
+    DecryptionError(ContentHash, String),
+    /// Hint matched but was a false positive (extremely rare).
+    HintFalsePositive(ContentHash),
+}
+
+impl DecryptionFailure {
+    /// Returns the content hash of the failed message.
+    pub fn hash(&self) -> &ContentHash {
+        match self {
+            DecryptionFailure::AuthenticationFailed(h, _) => h,
+            DecryptionFailure::EnvelopeParseFailed(h, _) => h,
+            DecryptionFailure::DecryptionError(h, _) => h,
+            DecryptionFailure::HintFalsePositive(h) => h,
+        }
+    }
+
+    /// Returns true if this failure indicates potential tampering.
+    pub fn is_potential_attack(&self) -> bool {
+        matches!(self, DecryptionFailure::AuthenticationFailed(_, _))
+    }
+}
+
 /// Result of scanning for private messages.
 #[derive(Debug, Default)]
 pub struct ScanResult {
@@ -49,8 +80,10 @@ pub struct ScanResult {
     pub messages_decrypted: usize,
     /// Number of new conversations discovered.
     pub new_conversations: usize,
-    /// Hashes of messages that failed to decrypt despite hint match.
+    /// Hashes of messages that failed to decrypt despite hint match (legacy field).
     pub failed_decryptions: Vec<ContentHash>,
+    /// Categorized decryption failures for better diagnosis.
+    pub decryption_failures: Vec<DecryptionFailure>,
     /// Newly decrypted messages with their conversation IDs.
     pub new_messages: Vec<(ContentHash, [u8; CONVERSATION_ID_SIZE], StoredMessage)>,
     /// Messages rejected due to consumed OTP (replay attack prevention).
@@ -113,23 +146,35 @@ impl<'a> PrivateMessageScanner<'a> {
     /// Returns the index of the matching encryption identity, or None if no match.
     ///
     /// **Security note**: This function scans ALL identities in constant time to avoid
-    /// leaking which identity matched through timing side-channels.
+    /// leaking which identity matched through timing side-channels. Additionally,
+    /// when multiple identities match, one is selected randomly to prevent pattern leakage.
     pub fn check_hint(&self, message: &SealedPrivateMessage) -> Option<usize> {
+        use rand::Rng;
+
         // SECURITY FIX: Scan all identities to avoid timing side-channel that
         // could reveal which identity index matched.
-        let mut matched_idx: Option<usize> = None;
+        // SECURITY FIX #2: Collect all matches and randomly select one to prevent
+        // leaking which identity index matched through return value patterns.
+        let mut matching_indices: Vec<usize> = Vec::new();
 
         for (idx, hint_key) in self.hint_keys.iter().enumerate() {
             // Always check all hints regardless of previous matches
             if message.check_recipient_hint(hint_key) {
-                // Store the first match (don't overwrite if already matched)
-                if matched_idx.is_none() {
-                    matched_idx = Some(idx);
-                }
+                matching_indices.push(idx);
             }
         }
 
-        matched_idx
+        // SECURITY: Randomly select among matches to prevent timing pattern analysis
+        // that could reveal which identity index typically matches first.
+        match matching_indices.len() {
+            0 => None,
+            1 => Some(matching_indices[0]),
+            n => {
+                // Multiple matches - randomly select one
+                let random_idx = rand::rng().random_range(0..n);
+                Some(matching_indices[random_idx])
+            }
+        }
     }
 
     /// Attempts to unseal a message using the specified encryption identity.
@@ -258,10 +303,39 @@ impl<'a> PrivateMessageScanner<'a> {
                         .push((*hash, unsealed.conversation_id, stored));
                     self.mark_processed(*hash);
                 }
-                Err(_) => {
-                    // Hint matched but decryption failed - could be corrupted or
-                    // very unlikely false positive
+                Err(e) => {
+                    // Hint matched but decryption failed - categorize the failure
+                    let error_msg = e.to_string();
                     result.failed_decryptions.push(*hash);
+
+                    // SECURITY: Categorize failure for better diagnosis
+                    let failure = if error_msg.contains("authentication") {
+                        // Message was for us but corrupted/tampered
+                        DecryptionFailure::AuthenticationFailed(*hash, error_msg.clone())
+                    } else if error_msg.contains("envelope")
+                        || error_msg.contains("deserialize")
+                        || error_msg.contains("Invalid")
+                    {
+                        // Malformed message structure
+                        DecryptionFailure::EnvelopeParseFailed(*hash, error_msg.clone())
+                    } else if error_msg.contains("hint") {
+                        // Extremely unlikely false positive
+                        DecryptionFailure::HintFalsePositive(*hash)
+                    } else {
+                        // Generic decryption error
+                        DecryptionFailure::DecryptionError(*hash, error_msg.clone())
+                    };
+
+                    // Log potential attacks
+                    if failure.is_potential_attack() {
+                        warn!(
+                            "Potential tampering detected for message {}: {}",
+                            hash.short(),
+                            error_msg
+                        );
+                    }
+
+                    result.decryption_failures.push(failure);
                 }
             }
         }

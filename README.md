@@ -259,12 +259,14 @@ Forums support end-to-end encrypted private messages using a Signal-inspired sea
 
 | Property                 | How Achieved                                         |
 | ------------------------ | ---------------------------------------------------- |
-| Content hidden           | AES-256-GCM encryption                               |
+| Content hidden           | AES-256-GCM encryption with conversation ID as AAD   |
 | Sender hidden            | Sealed sender - only recipient knows                 |
 | Recipient hidden         | Trial decryption - server can't tell who can decrypt |
 | Forward secrecy          | X3DH + Double Ratchet                                |
 | Post-compromise security | Double Ratchet key rotation                          |
 | Deniability              | No signatures on message content                     |
+| Length hiding            | Mandatory bucket-based padding (256B to 128KB)       |
+| Conversation binding     | Messages cryptographically bound to conversation     |
 
 **DAG Sync Protocol:**
 
@@ -386,6 +388,8 @@ PQPGP implements an end-to-end encrypted chat system inspired by the Signal Prot
 | **Break-in Recovery**     | DH ratchet heals session after key compromise          |
 | **Authentication**        | Identity keys sign prekey bundles                      |
 | **Replay Protection**     | Message numbers + unique nonces per message            |
+| **Timing-Safe Scanning**  | Constant-time hint checking with random selection      |
+| **Message Padding**       | Bucket-based padding hides true message length         |
 | **Identity Verification** | Fingerprint comparison for out-of-band verification    |
 
 ### Chat Module Structure

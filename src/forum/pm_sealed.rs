@@ -127,16 +127,27 @@ pub fn seal_private_message(
         recipient_identity.hash(),
     )?;
 
-    // Step 4: Encrypt inner message
+    // Step 4: Encrypt inner message with mandatory padding
+    // SECURITY: Use conversation_id as Additional Authenticated Data (AAD) to cryptographically
+    // bind the message to this conversation, preventing message reassignment attacks.
+    // SECURITY: Apply mandatory padding to hide message length from relay servers.
     let inner_bytes = inner_message.to_bytes()?;
+    let padded_inner = crate::forum::sealed_message::padding::pad_to_bucket(&inner_bytes)?;
+
     let mut inner_nonce = [0u8; 12];
     rand::rng().fill_bytes(&mut inner_nonce);
 
     let cipher = Aes256Gcm::new_from_slice(&conversation_key[..])
         .map_err(|_| PqpgpError::crypto("Failed to create AES-GCM cipher"))?;
 
+    // Use AES-GCM with AAD for conversation binding
+    use aes_gcm::aead::Payload;
+    let payload = Payload {
+        msg: &padded_inner,
+        aad: &conversation_id, // Bind message to this conversation
+    };
     let encrypted_inner = cipher
-        .encrypt(Nonce::from_slice(&inner_nonce), inner_bytes.as_slice())
+        .encrypt(Nonce::from_slice(&inner_nonce), payload)
         .map_err(|_| PqpgpError::crypto("Failed to encrypt inner message"))?;
 
     // Step 5: Create X3DH data
@@ -222,16 +233,25 @@ pub fn seal_private_message_with_session(
     conversation_key: &[u8; 32],
     conversation_id: [u8; 32],
 ) -> Result<SealedMessageResult> {
-    // Step 1: Encrypt inner message with existing conversation key
+    // Step 1: Encrypt inner message with existing conversation key and mandatory padding
+    // SECURITY: Use conversation_id as AAD to bind message to this conversation
+    // SECURITY: Apply mandatory padding to hide message length from relay servers.
     let inner_bytes = inner_message.to_bytes()?;
+    let padded_inner = crate::forum::sealed_message::padding::pad_to_bucket(&inner_bytes)?;
+
     let mut inner_nonce = [0u8; 12];
     rand::rng().fill_bytes(&mut inner_nonce);
 
     let cipher = Aes256Gcm::new_from_slice(conversation_key)
         .map_err(|_| PqpgpError::crypto("Failed to create AES-GCM cipher"))?;
 
+    use aes_gcm::aead::Payload;
+    let payload = Payload {
+        msg: &padded_inner,
+        aad: &conversation_id, // Bind message to this conversation
+    };
     let encrypted_inner = cipher
-        .encrypt(Nonce::from_slice(&inner_nonce), inner_bytes.as_slice())
+        .encrypt(Nonce::from_slice(&inner_nonce), payload)
         .map_err(|_| PqpgpError::crypto("Failed to encrypt inner message"))?;
 
     // Step 2: Create sealed envelope (without X3DH data - using existing session)
@@ -377,18 +397,24 @@ pub fn unseal_private_message(
         &recipient_private.identity_hash,
     )?;
 
-    // Step 7: Decrypt inner message
+    // Step 7: Decrypt inner message and remove padding
+    // SECURITY: Verify conversation_id as AAD to ensure message belongs to this conversation
     let inner_cipher = Aes256Gcm::new_from_slice(&conversation_key[..])
         .map_err(|_| PqpgpError::crypto("Failed to create inner AES-GCM cipher"))?;
 
-    let inner_bytes = inner_cipher
-        .decrypt(
-            Nonce::from_slice(&envelope.inner_nonce),
-            envelope.encrypted_inner.as_slice(),
-        )
+    use aes_gcm::aead::Payload;
+    let payload = Payload {
+        msg: &envelope.encrypted_inner,
+        aad: &conversation_id, // Verify message is bound to this conversation
+    };
+    let padded_inner = inner_cipher
+        .decrypt(Nonce::from_slice(&envelope.inner_nonce), payload)
         .map_err(|_| {
             PqpgpError::crypto("Failed to decrypt inner message - authentication failed")
         })?;
+
+    // Remove mandatory padding
+    let inner_bytes = crate::forum::sealed_message::padding::unpad(&padded_inner)?;
 
     let inner_message = InnerMessage::from_bytes(&inner_bytes)?;
 
@@ -474,18 +500,24 @@ pub fn unseal_private_message_with_session(
         }
     }
 
-    // Step 6: Decrypt inner message using existing conversation key
+    // Step 6: Decrypt inner message using existing conversation key and remove padding
+    // SECURITY: Verify conversation_id as AAD to ensure message belongs to this conversation
     let inner_cipher = Aes256Gcm::new_from_slice(conversation_key)
         .map_err(|_| PqpgpError::crypto("Failed to create inner AES-GCM cipher"))?;
 
-    let inner_bytes = inner_cipher
-        .decrypt(
-            Nonce::from_slice(&envelope.inner_nonce),
-            envelope.encrypted_inner.as_slice(),
-        )
+    use aes_gcm::aead::Payload;
+    let payload = Payload {
+        msg: &envelope.encrypted_inner,
+        aad: &conversation_id, // Verify message is bound to this conversation
+    };
+    let padded_inner = inner_cipher
+        .decrypt(Nonce::from_slice(&envelope.inner_nonce), payload)
         .map_err(|_| {
             PqpgpError::crypto("Failed to decrypt inner message - authentication failed")
         })?;
+
+    // Remove mandatory padding
+    let inner_bytes = crate::forum::sealed_message::padding::unpad(&padded_inner)?;
 
     let inner_message = InnerMessage::from_bytes(&inner_bytes)?;
 
@@ -1368,8 +1400,15 @@ mod tests {
         )
         .expect("Failed to generate recipient identity");
 
-        // Create a message with maximum allowed body size
-        let large_body = "X".repeat(90_000); // Less than 100KB limit
+        // Create a message with a large but valid body size
+        // Max sealed payload is 100KB, but we need to account for:
+        // - Padding to bucket size (adds random bytes + 4 byte length)
+        // - ML-KEM ciphertext (1568 bytes)
+        // - Outer nonce (12 bytes)
+        // - AES-GCM tag (16 bytes)
+        // - Envelope serialization overhead
+        // A 60KB body should safely fit within the 64KB bucket after padding
+        let large_body = "X".repeat(60_000);
         let inner = InnerMessage::new([0u8; 32], large_body);
 
         let result = seal_private_message(
@@ -1381,9 +1420,13 @@ mod tests {
         );
 
         // Should succeed with large but valid message
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "Failed to seal large message: {:?}",
+            result.err()
+        );
 
-        // Verify the sealed payload is within size limits
+        // Verify the sealed payload is within size limits (100KB max)
         let sealed = result.unwrap();
         assert!(sealed.message.content().sealed_payload.len() < 100_000);
     }

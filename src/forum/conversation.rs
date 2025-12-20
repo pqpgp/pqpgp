@@ -143,6 +143,11 @@ pub struct ConversationSession {
     /// Whether the ratchet has been initialized.
     ratchet_initialized: bool,
 
+    /// Guard against concurrent initialization attempts.
+    /// SECURITY: Prevents race condition where multiple threads try to initialize.
+    #[serde(skip)]
+    ratchet_initializing: bool,
+
     /// Peer's initial ratchet public key (from their signed prekey).
     /// Used to initialize the ratchet on first send/receive.
     peer_ratchet_public_key: Option<Vec<u8>>,
@@ -233,6 +238,7 @@ impl ConversationSession {
             messages_received: 0,
             double_ratchet: None,
             ratchet_initialized: false,
+            ratchet_initializing: false,
             peer_ratchet_public_key,
             our_ratchet_keypair_bytes: None,
         }
@@ -276,6 +282,7 @@ impl ConversationSession {
             messages_received: 0,
             double_ratchet: None,
             ratchet_initialized: false,
+            ratchet_initializing: false,
             peer_ratchet_public_key: None,
             our_ratchet_keypair_bytes: our_ratchet_keypair,
         }
@@ -364,11 +371,33 @@ impl ConversationSession {
     ///
     /// # Arguments
     /// * `peer_ratchet_key` - Peer's signed prekey public key bytes
+    ///
+    /// # Security
+    /// This method uses a guard flag to prevent race conditions where multiple
+    /// threads attempt concurrent initialization.
     pub fn initialize_ratchet_initiator(&mut self, peer_ratchet_key: &[u8]) -> Result<()> {
         if self.ratchet_initialized {
             return Err(PqpgpError::session("Ratchet already initialized"));
         }
 
+        // SECURITY: Prevent concurrent initialization attempts
+        if self.ratchet_initializing {
+            return Err(PqpgpError::session(
+                "Ratchet initialization already in progress",
+            ));
+        }
+        self.ratchet_initializing = true;
+
+        let result = self.do_initialize_ratchet_initiator(peer_ratchet_key);
+
+        // Always clear the guard, even on error
+        self.ratchet_initializing = false;
+
+        result
+    }
+
+    /// Internal implementation of initiator ratchet initialization.
+    fn do_initialize_ratchet_initiator(&mut self, peer_ratchet_key: &[u8]) -> Result<()> {
         let their_key = RatchetPublicKey::from_bytes(peer_ratchet_key.to_vec())?;
 
         // Create associated data binding the conversation
@@ -391,6 +420,10 @@ impl ConversationSession {
     ///
     /// # Arguments
     /// * `our_ratchet_keypair` - Our signed prekey keypair (public, secret)
+    ///
+    /// # Security
+    /// This method uses a guard flag to prevent race conditions where multiple
+    /// threads attempt concurrent initialization.
     pub fn initialize_ratchet_responder(
         &mut self,
         our_ratchet_keypair: (Vec<u8>, Vec<u8>),
@@ -399,6 +432,27 @@ impl ConversationSession {
             return Err(PqpgpError::session("Ratchet already initialized"));
         }
 
+        // SECURITY: Prevent concurrent initialization attempts
+        if self.ratchet_initializing {
+            return Err(PqpgpError::session(
+                "Ratchet initialization already in progress",
+            ));
+        }
+        self.ratchet_initializing = true;
+
+        let result = self.do_initialize_ratchet_responder(our_ratchet_keypair);
+
+        // Always clear the guard, even on error
+        self.ratchet_initializing = false;
+
+        result
+    }
+
+    /// Internal implementation of responder ratchet initialization.
+    fn do_initialize_ratchet_responder(
+        &mut self,
+        our_ratchet_keypair: (Vec<u8>, Vec<u8>),
+    ) -> Result<()> {
         let keypair = RatchetKeyPair::from_bytes(
             our_ratchet_keypair.0.clone(),
             our_ratchet_keypair.1.clone(),

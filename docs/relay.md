@@ -512,6 +512,7 @@ pqpgp_relay_data/
 ```
 
 **Relay Identity:**
+
 - Generated automatically on first run
 - Persists across restarts (same fingerprint)
 - Used to sign `forum.heads` statements
