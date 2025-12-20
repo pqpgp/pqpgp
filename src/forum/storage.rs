@@ -1407,6 +1407,17 @@ impl ForumStorage {
         Ok(())
     }
 
+    /// Registers a forum hash for background syncing without blocking.
+    ///
+    /// This adds the forum to the list of tracked forums so the background
+    /// sync task will fetch its data. Unlike full sync, this returns immediately.
+    ///
+    /// The forum will appear in `list_forums()` but may not have metadata
+    /// until the background sync completes.
+    pub fn register_pending_forum(&self, forum_hash: &ContentHash) -> Result<()> {
+        self.add_forum_to_list(forum_hash)
+    }
+
     /// Removes a forum and all its data.
     pub fn remove_forum(&self, forum_hash: &ContentHash) -> Result<()> {
         // Delete all nodes for this forum

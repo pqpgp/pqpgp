@@ -3504,10 +3504,11 @@ pub async fn remove_forum_handler(
     Redirect::to("/forum").into_response()
 }
 
-/// Join forum by hash handler - syncs forum data from relay to local storage.
+/// Join forum by hash handler - fetches initial batch then syncs rest in background.
 ///
-/// This performs a full sync of the forum DAG, storing all nodes locally.
-/// If the forum was already synced, it will fetch any new nodes.
+/// This validates the forum exists on the relay, fetches the first batch of nodes
+/// (including the forum genesis for metadata), then lets background sync handle
+/// the rest. User is redirected quickly without waiting for full sync.
 pub async fn join_forum_handler(
     State(app_state): State<AppState>,
     session: Session,
@@ -3541,55 +3542,104 @@ pub async fn join_forum_handler(
         }
     };
 
-    // Check if already synced locally
-    let already_synced = forum_exists_locally(&app_state.forum_persistence, &forum_hash);
-    if already_synced {
-        info!("Forum {} already synced, updating...", forum_hash.short());
+    // Check if already synced locally - if so, just redirect
+    if forum_exists_locally(&app_state.forum_persistence, &forum_hash) {
+        info!("Forum {} already synced", forum_hash.short());
+        return Redirect::to(&format!("/forum/{}", forum_hash_str)).into_response();
     }
 
-    // Check if forum exists on the relay first by attempting a sync with batch_size=1
+    // Fetch just the first batch to get the forum genesis and initial data
+    // This is quick (single request) and provides enough data to display the forum
+    match sync_forum_initial_batch(&app_state.forum_persistence, &forum_hash).await {
+        Ok(nodes_synced) => {
+            if nodes_synced > 0 {
+                info!(
+                    "Forum {} joined: {} nodes in initial batch (background sync will continue)",
+                    forum_hash.short(),
+                    nodes_synced
+                );
+                // Redirect to the forum - it now has enough data to display
+                Redirect::to(&format!("/forum/{}", forum_hash_str)).into_response()
+            } else {
+                // No nodes returned - forum doesn't exist or is empty
+                warn!("Forum not found on relay: {}", forum_hash_str);
+                Redirect::to("/forum").into_response()
+            }
+        }
+        Err(e) => {
+            error!("Failed to join forum {}: {}", forum_hash.short(), e);
+            Redirect::to("/forum").into_response()
+        }
+    }
+}
+
+/// Syncs just the first batch of nodes from a forum (non-blocking for large forums).
+///
+/// This fetches the first batch of nodes which includes the forum genesis,
+/// allowing the forum to be displayed immediately. The background sync task
+/// will continue fetching remaining nodes.
+async fn sync_forum_initial_batch(
+    persistence: &SharedForumPersistence,
+    forum_hash: &ContentHash,
+) -> Result<usize, String> {
     let http_client = Client::new();
     let rpc_client = create_rpc_client();
 
-    let check_request = rpc_client.build_sync_request(&forum_hash, 0, None, Some(1));
-    match send_rpc_request(&http_client, &rpc_client, &check_request).await {
-        Ok(rpc_response) => {
-            if let Err(e) = rpc_client.parse_sync_response(rpc_response) {
-                // Forum not found or other error
-                warn!("Forum not found on relay: {} - {}", forum_hash_str, e);
-                return Redirect::to("/forum").into_response();
+    // Fetch first batch starting from timestamp 0 (includes forum genesis)
+    let sync_request = rpc_client.build_sync_request(forum_hash, 0, None, Some(100));
+    let sync_rpc_response = send_rpc_request(&http_client, &rpc_client, &sync_request).await?;
+    let sync_result: SyncResult = rpc_client
+        .parse_sync_response(sync_rpc_response)
+        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+    if sync_result.nodes.is_empty() {
+        return Ok(0);
+    }
+
+    // Deserialize nodes
+    let fetched_nodes = sync_result
+        .deserialize_nodes()
+        .map_err(|e| format!("Failed to deserialize nodes: {}", e))?;
+
+    // Store the nodes
+    let mut stored_count = 0;
+    for (hash, node) in fetched_nodes {
+        if !persistence.node_exists(forum_hash, &hash).unwrap_or(false) {
+            if let Err(e) = persistence.store_node_for_forum(forum_hash, &node) {
+                warn!("Failed to store node {}: {}", hash.short(), e);
+                continue;
             }
-        }
-        Err(e) => {
-            error!("Connection error checking forum: {}", e);
-            return Redirect::to("/forum").into_response();
+
+            // If this is a forum genesis, store metadata to register the forum
+            if let Some(genesis) = node.as_forum_genesis() {
+                let metadata = ForumMetadata {
+                    name: genesis.name().to_string(),
+                    description: genesis.description().to_string(),
+                    created_at: genesis.created_at(),
+                    owner_identity: genesis.creator_identity().to_vec(),
+                };
+                if let Err(e) = persistence.store_forum_metadata(forum_hash, &metadata) {
+                    warn!("Failed to store forum metadata: {}", e);
+                }
+            }
+
+            stored_count += 1;
         }
     }
 
-    // Perform the full sync
-    match sync_forum(&app_state.forum_persistence, &forum_hash).await {
-        Ok(nodes_synced) => {
-            if already_synced {
-                info!(
-                    "Forum {} updated: {} new nodes synced",
-                    forum_hash.short(),
-                    nodes_synced
-                );
-            } else {
-                info!(
-                    "Forum {} joined: {} nodes synced",
-                    forum_hash.short(),
-                    nodes_synced
-                );
-            }
-            Redirect::to(&format!("/forum/{}", forum_hash_str)).into_response()
-        }
-        Err(e) => {
-            error!("Failed to sync forum {}: {}", forum_hash.short(), e);
-            // Still redirect to forum page - relay might have data even if sync failed
-            Redirect::to(&format!("/forum/{}", forum_hash_str)).into_response()
+    // Save cursor for background sync to continue from
+    if sync_result.has_more {
+        if let Some(h) = sync_result.next_cursor_hash.as_ref() {
+            let cursor_hash = ContentHash::from_hex(h).ok();
+            let _ = persistence.set_sync_cursor(
+                forum_hash,
+                sync_result.next_cursor_timestamp,
+                cursor_hash.as_ref(),
+            );
         }
     }
+
+    Ok(stored_count)
 }
 
 // =============================================================================
