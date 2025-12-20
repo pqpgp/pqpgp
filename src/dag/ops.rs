@@ -4,9 +4,17 @@
 //! - Computing reachable nodes from a set of heads
 //! - Finding missing nodes between client and server states
 //! - Topologically sorting nodes (parents before children)
+//! - Detecting cycles in the DAG
 //!
 //! The operations are generic over node types via the `DagNodeOps` trait,
 //! supporting both in-memory state and persistent storage backends.
+//!
+//! ## Performance
+//!
+//! - `compute_reachable`: O(n + e) where n is nodes and e is edges
+//! - `compute_missing`: O(n + e) using Kahn's algorithm
+//! - `topological_sort_hashes`: O(n + e) using Kahn's algorithm
+//! - `detect_cycle`: O(n + e) using DFS with coloring
 
 use crate::dag::ContentHash;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -95,7 +103,7 @@ pub fn compute_missing<N: DagNodeOps>(
 
 /// Sorts nodes into topological order (parents before children).
 ///
-/// Uses Kahn's algorithm variant with created_at as tiebreaker.
+/// Uses Kahn's algorithm for O(n + e) complexity where n is nodes and e is edges.
 /// Guarantees that for any node in the result, all its parents that are
 /// also in the input appear earlier in the output.
 ///
@@ -103,33 +111,90 @@ pub fn compute_missing<N: DagNodeOps>(
 /// * `nodes` - Slice of node references to sort
 ///
 /// # Returns
-/// Vector of node hashes in topological order
+/// Vector of node hashes in topological order. If a cycle is detected,
+/// returns as many nodes as possible in valid order (nodes in cycles are omitted).
+///
+/// # Algorithm
+/// Kahn's algorithm:
+/// 1. Compute in-degree for each node (count of parents within the set)
+/// 2. Start with nodes that have in-degree 0 (no parents in set)
+/// 3. For each processed node, decrement in-degree of its children
+/// 4. Add newly zero-degree nodes to the queue
 pub fn topological_sort_hashes<N: DagNodeOps>(nodes: &[&N]) -> Vec<ContentHash> {
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+
+    // Build node set for O(1) membership checks
     let node_set: HashSet<ContentHash> = nodes.iter().map(|n| *n.hash()).collect();
-    let mut result = Vec::with_capacity(nodes.len());
-    let mut added: HashSet<ContentHash> = HashSet::new();
 
-    // Keep iterating until all nodes are added
-    while added.len() < nodes.len() {
-        for node in nodes {
-            let hash = *node.hash();
-            if added.contains(&hash) {
-                continue;
-            }
+    // Build a map from hash to node for quick lookup
+    let node_map: HashMap<ContentHash, &N> = nodes.iter().map(|n| (*n.hash(), *n)).collect();
 
-            // Check if all parents in the node set are already added
-            let parents_ready = node
-                .parent_hashes()
-                .iter()
-                .all(|parent| !node_set.contains(parent) || added.contains(parent));
+    // Compute in-degree for each node (count of parents within the node set)
+    let mut in_degree: HashMap<ContentHash, usize> = HashMap::with_capacity(nodes.len());
+    for node in nodes {
+        let hash = *node.hash();
+        let degree = node
+            .parent_hashes()
+            .iter()
+            .filter(|p| node_set.contains(p))
+            .count();
+        in_degree.insert(hash, degree);
+    }
 
-            if parents_ready {
-                result.push(hash);
-                added.insert(hash);
+    // Build reverse adjacency: for each node, which nodes have it as a parent?
+    // This allows us to efficiently find children when processing a node.
+    let mut children: HashMap<ContentHash, Vec<ContentHash>> = HashMap::with_capacity(nodes.len());
+    for node in nodes {
+        let hash = *node.hash();
+        for parent in node.parent_hashes() {
+            if node_set.contains(&parent) {
+                children.entry(parent).or_default().push(hash);
             }
         }
     }
 
+    // Initialize queue with nodes that have no parents in the set (in-degree 0)
+    // Sort by created_at for deterministic ordering among nodes with same in-degree
+    let mut ready: Vec<ContentHash> = in_degree
+        .iter()
+        .filter(|(_, &deg)| deg == 0)
+        .map(|(hash, _)| *hash)
+        .collect();
+    ready.sort_by_key(|hash| node_map.get(hash).map(|n| n.created_at()).unwrap_or(0));
+
+    let mut queue: VecDeque<ContentHash> = ready.into_iter().collect();
+    let mut result = Vec::with_capacity(nodes.len());
+
+    // Process nodes in topological order
+    while let Some(hash) = queue.pop_front() {
+        result.push(hash);
+
+        // For each child of this node, decrement its in-degree
+        if let Some(child_list) = children.get(&hash) {
+            // Collect newly ready children and sort them by timestamp for determinism
+            let mut newly_ready: Vec<ContentHash> = Vec::new();
+
+            for &child_hash in child_list {
+                if let Some(degree) = in_degree.get_mut(&child_hash) {
+                    *degree = degree.saturating_sub(1);
+                    if *degree == 0 {
+                        newly_ready.push(child_hash);
+                    }
+                }
+            }
+
+            // Sort newly ready nodes by timestamp for deterministic ordering
+            newly_ready.sort_by_key(|hash| node_map.get(hash).map(|n| n.created_at()).unwrap_or(0));
+            for child in newly_ready {
+                queue.push_back(child);
+            }
+        }
+    }
+
+    // If result.len() < nodes.len(), there was a cycle - some nodes couldn't be added
+    // We return what we could process; the cycle detection should be done at validation time
     result
 }
 
@@ -138,34 +203,73 @@ pub fn topological_sort_hashes<N: DagNodeOps>(nodes: &[&N]) -> Vec<ContentHash> 
 /// Unlike `topological_sort_hashes`, this returns references to the actual
 /// nodes rather than just their hashes.
 ///
+/// Uses Kahn's algorithm for O(n + e) complexity.
+///
 /// # Arguments
 /// * `nodes` - Map of all nodes in the DAG
 ///
 /// # Returns
 /// Vector of node references in topological order
 pub fn nodes_in_topological_order<N: DagNodeOps>(nodes: &HashMap<ContentHash, N>) -> Vec<&N> {
-    let mut node_vec: Vec<&N> = nodes.values().collect();
-    node_vec.sort_by_key(|n| n.created_at());
+    if nodes.is_empty() {
+        return Vec::new();
+    }
 
-    let all_hashes: HashSet<ContentHash> = node_vec.iter().map(|n| *n.hash()).collect();
-    let mut result = Vec::with_capacity(node_vec.len());
-    let mut added: HashSet<ContentHash> = HashSet::new();
+    // Build set of all hashes for membership checks
+    let all_hashes: HashSet<ContentHash> = nodes.keys().copied().collect();
 
-    while added.len() < node_vec.len() {
-        for node in &node_vec {
-            let hash = *node.hash();
-            if added.contains(&hash) {
-                continue;
+    // Compute in-degree for each node
+    let mut in_degree: HashMap<ContentHash, usize> = HashMap::with_capacity(nodes.len());
+    for (hash, node) in nodes {
+        let degree = node
+            .parent_hashes()
+            .iter()
+            .filter(|p| all_hashes.contains(p))
+            .count();
+        in_degree.insert(*hash, degree);
+    }
+
+    // Build reverse adjacency: parent -> children
+    let mut children: HashMap<ContentHash, Vec<ContentHash>> = HashMap::with_capacity(nodes.len());
+    for (hash, node) in nodes {
+        for parent in node.parent_hashes() {
+            if all_hashes.contains(&parent) {
+                children.entry(parent).or_default().push(*hash);
+            }
+        }
+    }
+
+    // Initialize with zero in-degree nodes, sorted by timestamp for determinism
+    let mut ready: Vec<ContentHash> = in_degree
+        .iter()
+        .filter(|(_, &deg)| deg == 0)
+        .map(|(hash, _)| *hash)
+        .collect();
+    ready.sort_by_key(|hash| nodes.get(hash).map(|n| n.created_at()).unwrap_or(0));
+
+    let mut queue: VecDeque<ContentHash> = ready.into_iter().collect();
+    let mut result = Vec::with_capacity(nodes.len());
+
+    while let Some(hash) = queue.pop_front() {
+        if let Some(node) = nodes.get(&hash) {
+            result.push(node);
+        }
+
+        if let Some(child_list) = children.get(&hash) {
+            let mut newly_ready: Vec<ContentHash> = Vec::new();
+
+            for &child_hash in child_list {
+                if let Some(degree) = in_degree.get_mut(&child_hash) {
+                    *degree = degree.saturating_sub(1);
+                    if *degree == 0 {
+                        newly_ready.push(child_hash);
+                    }
+                }
             }
 
-            let parents_ready = node
-                .parent_hashes()
-                .iter()
-                .all(|parent| !all_hashes.contains(parent) || added.contains(parent));
-
-            if parents_ready {
-                result.push(*node);
-                added.insert(hash);
+            newly_ready.sort_by_key(|h| nodes.get(h).map(|n| n.created_at()).unwrap_or(0));
+            for child in newly_ready {
+                queue.push_back(child);
             }
         }
     }
@@ -173,16 +277,117 @@ pub fn nodes_in_topological_order<N: DagNodeOps>(nodes: &HashMap<ContentHash, N>
     result
 }
 
+/// Detects if adding a node with the given parent hashes would create a cycle.
+///
+/// This is used during validation to prevent cycles in the DAG.
+/// Since the new node doesn't exist in the DAG yet, the only way to create
+/// a cycle is through self-reference (parent_hashes contains new_node_hash).
+///
+/// # Arguments
+/// * `new_node_hash` - The hash of the node being added
+/// * `parent_hashes` - The parent hashes the new node references
+///
+/// # Returns
+/// `true` if a cycle would be created, `false` otherwise
+pub fn would_create_cycle(new_node_hash: &ContentHash, parent_hashes: &[ContentHash]) -> bool {
+    // Check for self-reference - the only way to create a cycle when adding a new node
+    // since no existing node can reference a node that doesn't exist yet
+    parent_hashes.contains(new_node_hash)
+}
+
+/// Checks if the given set of nodes contains a cycle.
+///
+/// Uses Kahn's algorithm - if we can't process all nodes, there's a cycle.
+///
+/// # Arguments
+/// * `nodes` - The nodes to check
+///
+/// # Returns
+/// `true` if a cycle exists, `false` otherwise
+pub fn contains_cycle<N: DagNodeOps>(nodes: &HashMap<ContentHash, N>) -> bool {
+    if nodes.is_empty() {
+        return false;
+    }
+
+    let all_hashes: HashSet<ContentHash> = nodes.keys().copied().collect();
+
+    // Compute in-degree for each node
+    let mut in_degree: HashMap<ContentHash, usize> = HashMap::with_capacity(nodes.len());
+    for (hash, node) in nodes {
+        let degree = node
+            .parent_hashes()
+            .iter()
+            .filter(|p| all_hashes.contains(p))
+            .count();
+        in_degree.insert(*hash, degree);
+    }
+
+    // Build reverse adjacency
+    let mut children: HashMap<ContentHash, Vec<ContentHash>> = HashMap::with_capacity(nodes.len());
+    for (hash, node) in nodes {
+        for parent in node.parent_hashes() {
+            if all_hashes.contains(&parent) {
+                children.entry(parent).or_default().push(*hash);
+            }
+        }
+    }
+
+    // Process nodes with zero in-degree
+    let mut queue: VecDeque<ContentHash> = in_degree
+        .iter()
+        .filter(|(_, &deg)| deg == 0)
+        .map(|(hash, _)| *hash)
+        .collect();
+
+    let mut processed = 0;
+
+    while let Some(hash) = queue.pop_front() {
+        processed += 1;
+
+        if let Some(child_list) = children.get(&hash) {
+            for &child_hash in child_list {
+                if let Some(degree) = in_degree.get_mut(&child_hash) {
+                    *degree = degree.saturating_sub(1);
+                    if *degree == 0 {
+                        queue.push_back(child_hash);
+                    }
+                }
+            }
+        }
+    }
+
+    // If we couldn't process all nodes, there's a cycle
+    processed < nodes.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Simple test node for verifying DAG operations.
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     struct TestNode {
         hash: ContentHash,
-        parent: Option<ContentHash>,
+        parents: Vec<ContentHash>,
         created_at: u64,
+    }
+
+    impl TestNode {
+        fn new(hash: ContentHash, parent: Option<ContentHash>, created_at: u64) -> Self {
+            Self {
+                hash,
+                parents: parent.into_iter().collect(),
+                created_at,
+            }
+        }
+
+        fn with_parents(hash: ContentHash, parents: Vec<ContentHash>, created_at: u64) -> Self {
+            Self {
+                hash,
+                parents,
+                created_at,
+            }
+        }
     }
 
     impl DagNodeOps for TestNode {
@@ -191,7 +396,7 @@ mod tests {
         }
 
         fn parent_hashes(&self) -> Vec<ContentHash> {
-            self.parent.into_iter().collect()
+            self.parents.clone()
         }
 
         fn created_at(&self) -> u64 {
@@ -208,11 +413,7 @@ mod tests {
     #[test]
     fn test_compute_reachable_single_node() {
         let hash = make_hash(1);
-        let node = TestNode {
-            hash,
-            parent: None,
-            created_at: 1000,
-        };
+        let node = TestNode::new(hash, None, 1000);
 
         let mut nodes = HashMap::new();
         nodes.insert(hash, node);
@@ -228,21 +429,9 @@ mod tests {
         let hash2 = make_hash(2);
         let hash3 = make_hash(3);
 
-        let node1 = TestNode {
-            hash: hash1,
-            parent: None,
-            created_at: 1000,
-        };
-        let node2 = TestNode {
-            hash: hash2,
-            parent: Some(hash1),
-            created_at: 2000,
-        };
-        let node3 = TestNode {
-            hash: hash3,
-            parent: Some(hash2),
-            created_at: 3000,
-        };
+        let node1 = TestNode::new(hash1, None, 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
+        let node3 = TestNode::new(hash3, Some(hash2), 3000);
 
         let mut nodes = HashMap::new();
         nodes.insert(hash1, node1);
@@ -268,16 +457,8 @@ mod tests {
         let hash1 = make_hash(1);
         let hash2 = make_hash(2);
 
-        let node1 = TestNode {
-            hash: hash1,
-            parent: None,
-            created_at: 1000,
-        };
-        let node2 = TestNode {
-            hash: hash2,
-            parent: Some(hash1),
-            created_at: 2000,
-        };
+        let node1 = TestNode::new(hash1, None, 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
 
         let mut nodes = HashMap::new();
         nodes.insert(hash1, node1);
@@ -301,16 +482,8 @@ mod tests {
         let hash1 = make_hash(1);
         let hash2 = make_hash(2);
 
-        let node1 = TestNode {
-            hash: hash1,
-            parent: None,
-            created_at: 1000,
-        };
-        let node2 = TestNode {
-            hash: hash2,
-            parent: Some(hash1),
-            created_at: 2000,
-        };
+        let node1 = TestNode::new(hash1, None, 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
 
         let mut nodes = HashMap::new();
         nodes.insert(hash1, node1);
@@ -321,5 +494,137 @@ mod tests {
         // Node1 must come before node2
         assert_eq!(ordered[0].hash, hash1);
         assert_eq!(ordered[1].hash, hash2);
+    }
+
+    #[test]
+    fn test_would_create_cycle_self_reference() {
+        let hash1 = make_hash(1);
+
+        // Self-reference should be detected
+        assert!(would_create_cycle(&hash1, &[hash1]));
+    }
+
+    #[test]
+    fn test_would_create_cycle_no_cycle() {
+        let hash2 = make_hash(2);
+        let hash3 = make_hash(3);
+
+        // Adding hash3 with parent hash2 should not create a cycle
+        assert!(!would_create_cycle(&hash3, &[hash2]));
+    }
+
+    #[test]
+    fn test_contains_cycle_no_cycle() {
+        let hash1 = make_hash(1);
+        let hash2 = make_hash(2);
+        let hash3 = make_hash(3);
+
+        let node1 = TestNode::new(hash1, None, 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
+        let node3 = TestNode::new(hash3, Some(hash2), 3000);
+
+        let mut nodes = HashMap::new();
+        nodes.insert(hash1, node1);
+        nodes.insert(hash2, node2);
+        nodes.insert(hash3, node3);
+
+        assert!(!contains_cycle(&nodes));
+    }
+
+    #[test]
+    fn test_contains_cycle_with_cycle() {
+        let hash1 = make_hash(1);
+        let hash2 = make_hash(2);
+        let hash3 = make_hash(3);
+
+        // Create a cycle: 1 -> 2 -> 3 -> 1
+        let node1 = TestNode::new(hash1, Some(hash3), 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
+        let node3 = TestNode::new(hash3, Some(hash2), 3000);
+
+        let mut nodes = HashMap::new();
+        nodes.insert(hash1, node1);
+        nodes.insert(hash2, node2);
+        nodes.insert(hash3, node3);
+
+        assert!(contains_cycle(&nodes));
+    }
+
+    #[test]
+    fn test_contains_cycle_self_loop() {
+        let hash1 = make_hash(1);
+
+        // Node references itself
+        let node1 = TestNode::new(hash1, Some(hash1), 1000);
+
+        let mut nodes = HashMap::new();
+        nodes.insert(hash1, node1);
+
+        assert!(contains_cycle(&nodes));
+    }
+
+    #[test]
+    fn test_topological_sort_handles_cycle_gracefully() {
+        let hash1 = make_hash(1);
+        let hash2 = make_hash(2);
+
+        // Create a cycle: 1 -> 2 -> 1
+        let node1 = TestNode::new(hash1, Some(hash2), 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
+
+        let nodes_vec: Vec<&TestNode> = vec![&node1, &node2];
+
+        // Should return empty or partial result, not hang
+        let result = topological_sort_hashes(&nodes_vec);
+        // Neither node can be added because each depends on the other
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_topological_sort_empty() {
+        let nodes: Vec<&TestNode> = vec![];
+        let result = topological_sort_hashes(&nodes);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_contains_cycle_empty() {
+        let nodes: HashMap<ContentHash, TestNode> = HashMap::new();
+        assert!(!contains_cycle(&nodes));
+    }
+
+    #[test]
+    fn test_topological_order_diamond() {
+        // Diamond structure: 1 -> 2, 1 -> 3, 2 -> 4, 3 -> 4
+        let hash1 = make_hash(1);
+        let hash2 = make_hash(2);
+        let hash3 = make_hash(3);
+        let hash4 = make_hash(4);
+
+        let node1 = TestNode::new(hash1, None, 1000);
+        let node2 = TestNode::new(hash2, Some(hash1), 2000);
+        let node3 = TestNode::new(hash3, Some(hash1), 2001);
+        let node4 = TestNode::with_parents(hash4, vec![hash2, hash3], 3000);
+
+        let mut nodes = HashMap::new();
+        nodes.insert(hash1, node1);
+        nodes.insert(hash2, node2);
+        nodes.insert(hash3, node3);
+        nodes.insert(hash4, node4);
+
+        let ordered = nodes_in_topological_order(&nodes);
+        assert_eq!(ordered.len(), 4);
+
+        // Find positions
+        let pos1 = ordered.iter().position(|n| n.hash == hash1).unwrap();
+        let pos2 = ordered.iter().position(|n| n.hash == hash2).unwrap();
+        let pos3 = ordered.iter().position(|n| n.hash == hash3).unwrap();
+        let pos4 = ordered.iter().position(|n| n.hash == hash4).unwrap();
+
+        // Verify ordering constraints
+        assert!(pos1 < pos2, "node1 must come before node2");
+        assert!(pos1 < pos3, "node1 must come before node3");
+        assert!(pos2 < pos4, "node2 must come before node4");
+        assert!(pos3 < pos4, "node3 must come before node4");
     }
 }

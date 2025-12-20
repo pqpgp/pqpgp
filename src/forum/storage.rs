@@ -1407,6 +1407,17 @@ impl ForumStorage {
         Ok(())
     }
 
+    /// Registers a forum hash for background syncing without blocking.
+    ///
+    /// This adds the forum to the list of tracked forums so the background
+    /// sync task will fetch its data. Unlike full sync, this returns immediately.
+    ///
+    /// The forum will appear in `list_forums()` but may not have metadata
+    /// until the background sync completes.
+    pub fn register_pending_forum(&self, forum_hash: &ContentHash) -> Result<()> {
+        self.add_forum_to_list(forum_hash)
+    }
+
     /// Removes a forum and all its data.
     pub fn remove_forum(&self, forum_hash: &ContentHash) -> Result<()> {
         // Delete all nodes for this forum
@@ -3296,7 +3307,6 @@ mod tests {
             forum_hash,
             "Test Board".to_string(),
             "A test board".to_string(),
-            vec!["tag1".to_string()],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -3386,7 +3396,6 @@ mod tests {
             forum_hash,
             "Board 1".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -3397,7 +3406,6 @@ mod tests {
             forum_hash,
             "Board 2".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -3485,7 +3493,6 @@ mod tests {
             forum_hash,
             "Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,

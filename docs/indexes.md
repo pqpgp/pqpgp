@@ -121,14 +121,14 @@ pub struct ForumState {
 }
 ```
 
-| Index                | Key Type             | Value Type             | Purpose                      |
-| -------------------- | -------------------- | ---------------------- | ---------------------------- |
-| `nodes`              | `ContentHash`        | `DagNode`              | Primary node lookup          |
-| `heads`              | -                    | `HashSet<ContentHash>` | DAG head tracking            |
-| `boards`             | -                    | `Vec<ContentHash>`     | Ordered board list           |
-| `board_threads`      | `ContentHash`        | `Vec<ContentHash>`     | Threads per board            |
-| `thread_posts`       | `ContentHash`        | `Vec<ContentHash>`     | Posts per thread             |
-| `nodes_by_timestamp` | `(u64, ContentHash)` | `()`                   | Cursor-based sync pagination |
+| Index                | Key Type             | Value Type             | Purpose                                   |
+| -------------------- | -------------------- | ---------------------- | ----------------------------------------- |
+| `nodes`              | `ContentHash`        | `DagNode`              | Primary node lookup                       |
+| `heads`              | -                    | `HashSet<ContentHash>` | DAG head tracking                         |
+| `boards`             | -                    | `Vec<ContentHash>`     | Ordered board list                        |
+| `board_threads`      | `ContentHash`        | `Vec<ContentHash>`     | Threads per board (updated on MoveThread) |
+| `thread_posts`       | `ContentHash`        | `Vec<ContentHash>`     | Posts per thread                          |
+| `nodes_by_timestamp` | `(u64, ContentHash)` | `()`                   | Cursor-based sync pagination              |
 
 ### Messaging State (`bin/relay/src/rpc/state.rs`)
 

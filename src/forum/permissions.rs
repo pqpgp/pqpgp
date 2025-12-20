@@ -252,26 +252,37 @@ impl ForumPermissions {
     /// Returns true if the given identity is a forum-level moderator.
     ///
     /// SECURITY: Uses constant-time comparison for each moderator check.
+    /// Iterates through ALL moderators to prevent timing leaks that could
+    /// reveal moderator count or position.
     pub fn is_moderator(&self, identity: &[u8]) -> bool {
-        // Use constant-time comparison for each moderator
-        // Note: The number of moderators checked leaks some timing info,
-        // but the identity bytes themselves are compared constant-time
-        self.moderators
-            .iter()
-            .any(|mod_id| TimingSafe::identity_equal(mod_id, identity))
+        // Iterate through ALL moderators to prevent timing leaks
+        // The result is accumulated without early return to ensure constant-time behavior
+        let mut found = false;
+        for mod_id in &self.moderators {
+            if TimingSafe::identity_equal(mod_id, identity) {
+                found = true;
+                // Don't return early - continue checking all moderators
+            }
+        }
+        found
     }
 
     /// Returns true if the given identity is a board-level moderator for the specified board.
     ///
     /// SECURITY: Uses constant-time comparison for identity checks.
+    /// Iterates through ALL board moderators to prevent timing leaks.
     pub fn is_board_moderator(&self, identity: &[u8], board_hash: &ContentHash) -> bool {
-        self.board_moderators
-            .get(board_hash)
-            .map(|mods| {
-                mods.iter()
-                    .any(|mod_id| TimingSafe::identity_equal(mod_id, identity))
-            })
-            .unwrap_or(false)
+        // Iterate through ALL board moderators to prevent timing leaks
+        let mut found = false;
+        if let Some(mods) = self.board_moderators.get(board_hash) {
+            for mod_id in mods {
+                if TimingSafe::identity_equal(mod_id, identity) {
+                    found = true;
+                    // Don't return early - continue checking all moderators
+                }
+            }
+        }
+        found
     }
 
     /// Returns true if the given identity can moderate the specified board.

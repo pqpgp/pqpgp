@@ -113,7 +113,6 @@ impl Simulation {
             forum_hash,
             name.to_string(),
             description.to_string(),
-            vec![],
             self.alice.keypair().public_key(),
             self.alice.keypair().private_key(),
             None,

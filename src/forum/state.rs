@@ -103,14 +103,25 @@ impl ForumState {
 
     /// Adds a node to the forum state.
     ///
-    /// Returns true if the node was new, false if it already existed.
+    /// Returns `Ok(true)` if the node was new, `Ok(false)` if it already existed.
+    /// Returns `Err` if adding the node would cause a permission error.
     /// Automatically updates all secondary indexes for O(1) content retrieval.
-    pub fn add_node(&mut self, node: DagNode) -> bool {
+    pub fn add_node(&mut self, node: DagNode) -> Result<bool, String> {
         let hash = *node.hash();
 
         // Check if already exists
         if self.nodes.contains_key(&hash) {
-            return false;
+            return Ok(false);
+        }
+
+        // Update permissions if this is a mod action - do this BEFORE adding the node
+        // so we can reject invalid mod actions without corrupting state
+        if let DagNode::ModAction(action) = &node {
+            if let Some(ref mut perms) = self.permissions {
+                perms
+                    .apply_action(action)
+                    .map_err(|e| format!("Failed to apply mod action: {}", e))?;
+            }
         }
 
         // Update heads: remove parents from heads, add this node
@@ -118,15 +129,6 @@ impl ForumState {
             self.heads.remove(&parent_hash);
         }
         self.heads.insert(hash);
-
-        // Update permissions if this is a mod action
-        if let DagNode::ModAction(action) = &node {
-            if let Some(ref mut perms) = self.permissions {
-                if let Err(e) = perms.apply_action(action) {
-                    tracing::warn!("Failed to apply mod action: {}", e);
-                }
-            }
-        }
 
         // Update secondary indexes based on node type
         self.update_indexes_for_node(&node);
@@ -140,7 +142,7 @@ impl ForumState {
 
         // Store the node
         self.nodes.insert(hash, node);
-        true
+        Ok(true)
     }
 
     /// Updates secondary indexes when a new node is added.
@@ -169,9 +171,42 @@ impl ForumState {
                 let thread_hash = *post.thread_hash();
                 self.thread_posts.entry(thread_hash).or_default().push(hash);
             }
+            DagNode::ModAction(action) => {
+                // Update secondary indexes for moderation actions that affect structure
+                use crate::forum::ModAction;
+                if action.action() == ModAction::MoveThread {
+                    // MoveThread changes which board a thread belongs to
+                    // Remove from old board's index, add to new board's index
+                    if let (Some(thread_hash), Some(dest_board_hash)) =
+                        (action.target_node_hash(), action.board_hash())
+                    {
+                        // Find and remove thread from its current board's index
+                        // We need to find which board currently has this thread
+                        let mut source_board = None;
+                        for (board, threads) in &self.board_threads {
+                            if threads.contains(thread_hash) {
+                                source_board = Some(*board);
+                                break;
+                            }
+                        }
+
+                        // Remove from source board if found
+                        if let Some(source) = source_board {
+                            if let Some(threads) = self.board_threads.get_mut(&source) {
+                                threads.retain(|h| h != thread_hash);
+                            }
+                        }
+
+                        // Add to destination board
+                        self.board_threads
+                            .entry(*dest_board_hash)
+                            .or_default()
+                            .push(*thread_hash);
+                    }
+                }
+            }
             // Other node types don't need indexing
             DagNode::ForumGenesis(_)
-            | DagNode::ModAction(_)
             | DagNode::Edit(_)
             | DagNode::EncryptionIdentity(_)
             | DagNode::SealedPrivateMessage(_) => {}
@@ -201,12 +236,12 @@ impl ForumState {
     /// Gets nodes after a cursor for sync, up to a limit.
     ///
     /// Uses the timestamp index for efficient O(log n) seek + O(batch) iteration.
-    /// The cursor is `(timestamp, hash)` - nodes at the cursor timestamp are skipped
-    /// until after the cursor hash, handling ties correctly.
+    /// The cursor is `(timestamp, hash)` - nodes at the cursor position are excluded,
+    /// and iteration starts from the next node in (timestamp, hash) order.
     ///
     /// # Arguments
     /// * `cursor_timestamp` - Start from nodes with timestamp >= this value (use 0 for all)
-    /// * `cursor_hash` - If Some, skip nodes at cursor_timestamp until after this hash
+    /// * `cursor_hash` - If Some, start AFTER this specific (timestamp, hash) pair
     /// * `limit` - Maximum number of nodes to return
     ///
     /// # Returns
@@ -220,30 +255,26 @@ impl ForumState {
         use std::ops::Bound;
 
         let mut nodes = Vec::with_capacity(limit);
-        let mut skip_until_after = cursor_hash;
 
-        // Use range to seek to the cursor position efficiently
-        let start = (cursor_timestamp, ContentHash::from_bytes([0u8; 64]));
-        let range = self
-            .nodes_by_timestamp
-            .range((Bound::Included(start), Bound::Unbounded));
+        // Determine the correct starting bound based on cursor
+        let range = if let Some(cursor) = cursor_hash {
+            // Start AFTER the cursor position (exclusive)
+            let cursor_key = (cursor_timestamp, *cursor);
+            self.nodes_by_timestamp
+                .range((Bound::Excluded(cursor_key), Bound::Unbounded))
+        } else {
+            // No cursor hash - start from the timestamp (inclusive)
+            let start = (cursor_timestamp, ContentHash::from_bytes([0u8; 64]));
+            self.nodes_by_timestamp
+                .range((Bound::Included(start), Bound::Unbounded))
+        };
 
         for ((ts, hash), ()) in range {
-            // If we have a cursor hash, skip nodes at the cursor timestamp until we pass it
-            if let Some(cursor) = skip_until_after {
-                if *ts == cursor_timestamp && hash <= cursor {
-                    continue;
-                }
-                // We've passed the cursor, stop skipping
-                skip_until_after = None;
-            }
-
             // Get the actual node
             if let Some(node) = self.nodes.get(hash) {
                 nodes.push(node);
                 if nodes.len() >= limit {
                     // Check if there are more nodes after this batch
-                    // We need to peek at the next item
                     let next_start = (*ts, *hash);
                     let has_more = self
                         .nodes_by_timestamp
@@ -561,7 +592,7 @@ impl ForumRelayState {
             }
         }
 
-        Ok(forum.add_node(node))
+        forum.add_node(node)
     }
 
     /// Gets a reference to a forum's state.
@@ -643,14 +674,13 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
 
-        let added = state.add_node(DagNode::from(board.clone()));
+        let added = state.add_node(DagNode::from(board.clone())).unwrap();
         assert!(added);
         assert_eq!(state.node_count(), 2);
 
@@ -659,7 +689,7 @@ mod tests {
         assert!(state.heads.contains(board.hash()));
 
         // Adding same node again should return false
-        let added_again = state.add_node(DagNode::from(board));
+        let added_again = state.add_node(DagNode::from(board)).unwrap();
         assert!(!added_again);
     }
 
@@ -674,14 +704,13 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
 
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Client with empty heads should get everything
         let missing = compute_missing(&state.nodes, &[]);
@@ -732,7 +761,6 @@ mod tests {
             forum_hash,
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -807,13 +835,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Create a thread in that board
         let thread = ThreadRoot::create(
@@ -825,7 +852,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         // Effective board should be the original board
         let effective = state.get_effective_board_for_thread(thread.hash());
@@ -850,13 +877,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Create a thread in that board
         let thread = ThreadRoot::create(
@@ -868,7 +894,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         // Create a post in that thread
         let post = Post::create(
@@ -881,7 +907,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(post.clone()));
+        state.add_node(DagNode::from(post.clone())).unwrap();
 
         // Effective board for the post should be the original board
         let effective = state.get_effective_board_for_post(post.hash());
@@ -902,13 +928,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Create a thread
         let thread = ThreadRoot::create(
@@ -920,7 +945,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         // Create a post
         let post = Post::create(
@@ -933,7 +958,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(post.clone()));
+        state.add_node(DagNode::from(post.clone())).unwrap();
 
         // Test get_effective_board for each node type
         assert_eq!(state.get_effective_board(board.hash()), Some(*board.hash()));
@@ -961,25 +986,23 @@ mod tests {
             *genesis.hash(),
             "Board 1".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board1.clone()));
+        state.add_node(DagNode::from(board1.clone())).unwrap();
 
         let board2 = BoardGenesis::create(
             *genesis.hash(),
             "Board 2".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board2.clone()));
+        state.add_node(DagNode::from(board2.clone())).unwrap();
 
         // Create a thread in board1
         let thread = ThreadRoot::create(
@@ -991,7 +1014,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         // Create a post in that thread
         let post = Post::create(
@@ -1004,7 +1027,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(post.clone()));
+        state.add_node(DagNode::from(post.clone())).unwrap();
 
         // Initially, effective board is board1
         assert_eq!(
@@ -1027,7 +1050,7 @@ mod tests {
             vec![*post.hash()],
         )
         .unwrap();
-        state.add_node(DagNode::from(move_action));
+        state.add_node(DagNode::from(move_action)).unwrap();
 
         // After move, effective board should be board2
         assert_eq!(
@@ -1065,13 +1088,12 @@ mod tests {
             *genesis.hash(),
             "Board 1".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board1.clone()));
+        state.add_node(DagNode::from(board1.clone())).unwrap();
 
         assert_eq!(state.get_boards().len(), 1);
         assert_eq!(state.board_count(), 1);
@@ -1082,13 +1104,12 @@ mod tests {
             *genesis.hash(),
             "Board 2".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board2.clone()));
+        state.add_node(DagNode::from(board2.clone())).unwrap();
 
         assert_eq!(state.get_boards().len(), 2);
         assert_eq!(state.board_count(), 2);
@@ -1110,13 +1131,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Initially no threads
         assert_eq!(state.get_threads_in_board(board.hash()).len(), 0);
@@ -1132,7 +1152,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread1.clone()));
+        state.add_node(DagNode::from(thread1.clone())).unwrap();
 
         assert_eq!(state.get_threads_in_board(board.hash()).len(), 1);
         assert_eq!(state.thread_count_in_board(board.hash()), 1);
@@ -1148,7 +1168,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread2.clone()));
+        state.add_node(DagNode::from(thread2.clone())).unwrap();
 
         assert_eq!(state.get_threads_in_board(board.hash()).len(), 2);
         assert_eq!(state.thread_count_in_board(board.hash()), 2);
@@ -1174,13 +1194,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Create a thread
         let thread = ThreadRoot::create(
@@ -1192,7 +1211,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         // Initially no posts
         assert_eq!(state.get_posts_in_thread(thread.hash()).len(), 0);
@@ -1209,7 +1228,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(post1.clone()));
+        state.add_node(DagNode::from(post1.clone())).unwrap();
 
         assert_eq!(state.get_posts_in_thread(thread.hash()).len(), 1);
         assert_eq!(state.post_count_in_thread(thread.hash()), 1);
@@ -1226,7 +1245,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(post2.clone()));
+        state.add_node(DagNode::from(post2.clone())).unwrap();
 
         assert_eq!(state.get_posts_in_thread(thread.hash()).len(), 2);
         assert_eq!(state.post_count_in_thread(thread.hash()), 2);
@@ -1267,13 +1286,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         // Create a thread
         let thread = ThreadRoot::create(
@@ -1285,7 +1303,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         // Get topological order - should build cache
         let order = state.get_topological_order();
@@ -1321,13 +1339,12 @@ mod tests {
             *genesis.hash(),
             "Test Board".to_string(),
             "".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(board.clone()));
+        state.add_node(DagNode::from(board.clone())).unwrap();
 
         let thread = ThreadRoot::create(
             *board.hash(),
@@ -1338,7 +1355,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(thread.clone()));
+        state.add_node(DagNode::from(thread.clone())).unwrap();
 
         let post = Post::create(
             *thread.hash(),
@@ -1350,7 +1367,7 @@ mod tests {
             None,
         )
         .unwrap();
-        state.add_node(DagNode::from(post.clone()));
+        state.add_node(DagNode::from(post.clone())).unwrap();
 
         // Verify indexes are populated
         assert_eq!(state.board_count(), 1);

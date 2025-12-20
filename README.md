@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/3Bbddk7.png" alt="PQPGP" width="850">
+  <img src="https://i.imgur.com/OFuj3X3.jpeg" alt="PQPGP" width="850">
 </p>
 
 A post-quantum secure implementation of PGP (Pretty Good Privacy) in Rust, providing quantum-resistant cryptographic operations while maintaining compatibility with standard PGP workflows and packet formats.
@@ -446,7 +446,7 @@ let ciphertext = aes_gcm.encrypt(nonce, Payload { msg, aad })?;
 
 ## Security Testing
 
-PQPGP includes a comprehensive security testing framework with **430+ tests** covering:
+PQPGP includes a comprehensive security testing framework with **470+ tests** covering:
 
 - **Input Validation**: Buffer overflow protection, bounds checking
 - **Attack Resistance**: Timing attacks, padding oracles, injection attacks
@@ -586,9 +586,12 @@ Both the relay server and web client validate nodes using shared validation logi
 - Parent existence checks (DAG integrity)
 - Parent type validation (posts can only reference posts or thread roots)
 - Thread isolation (parent posts must belong to the same thread)
+- Required parent hashes (posts must have at least one parent to prevent orphaned subtrees)
+- Cycle detection (self-referencing nodes are rejected to prevent DAG corruption)
 - Permission checks (moderator actions)
 - Target validation (hide/unhide actions verify target exists and has correct type)
 - Timestamp sanity checks (±5 minute clock skew, minimum timestamp validation)
+- Timestamp monotonicity (nodes cannot have timestamps before their parents/targets)
 - Content size limits (DoS prevention)
 
 Invalid nodes are rejected and not stored, protecting against malicious relays.

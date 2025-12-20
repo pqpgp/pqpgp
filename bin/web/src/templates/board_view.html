@@ -10,10 +10,6 @@
     <p>{{ board_description }}</p>
     <p style="color: #718096; font-size: 0.9em;">
         In forum: <strong>{{ forum_name }}</strong>
-        &nbsp;|&nbsp;
-        {% for tag in board_tags %}
-        <span class="status-badge status-success">{{ tag }}</span>
-        {% endfor %}
     </p>
 
     {% if has_error %}

@@ -19,12 +19,6 @@ pub const MAX_BOARD_NAME_LENGTH: usize = 100;
 /// Maximum length for board description in characters.
 pub const MAX_BOARD_DESCRIPTION_LENGTH: usize = 5_000;
 
-/// Maximum number of tags per board.
-pub const MAX_BOARD_TAGS: usize = 10;
-
-/// Maximum length for each tag in characters.
-pub const MAX_TAG_LENGTH: usize = 50;
-
 /// The content of a board genesis node that gets signed and hashed.
 ///
 /// This structure is serialized with bincode for deterministic hashing and signing.
@@ -39,8 +33,6 @@ pub struct BoardGenesisContent {
     pub name: String,
     /// Board description explaining its purpose.
     pub description: String,
-    /// Optional tags for categorization.
-    pub tags: Vec<String>,
     /// Public key bytes of the board creator.
     pub creator_identity: Vec<u8>,
     /// Creation timestamp in milliseconds since Unix epoch.
@@ -53,7 +45,6 @@ impl fmt::Debug for BoardGenesisContent {
             .field("node_type", &self.node_type)
             .field("forum_hash", &self.forum_hash)
             .field("name", &self.name)
-            .field("tags", &self.tags)
             .field("created_at", &self.created_at)
             .finish()
     }
@@ -66,20 +57,16 @@ impl BoardGenesisContent {
     /// * `forum_hash` - Hash of the parent forum genesis
     /// * `name` - Human-readable board name (1-100 characters)
     /// * `description` - Board description (up to 5,000 characters)
-    /// * `tags` - Optional categorization tags (up to 10 tags, 50 chars each)
     /// * `creator_public_key` - Public key of the board creator
     ///
     /// # Errors
     /// Returns an error if:
     /// - Name is empty or exceeds 100 characters
     /// - Description exceeds 5,000 characters
-    /// - More than 10 tags provided
-    /// - Any tag exceeds 50 characters
     pub fn new(
         forum_hash: ContentHash,
         name: String,
         description: String,
-        tags: Vec<String>,
         creator_public_key: &PublicKey,
     ) -> Result<Self> {
         // Validate name
@@ -101,31 +88,11 @@ impl BoardGenesisContent {
             )));
         }
 
-        // Validate tags
-        if tags.len() > MAX_BOARD_TAGS {
-            return Err(PqpgpError::validation(format!(
-                "Board cannot have more than {} tags",
-                MAX_BOARD_TAGS
-            )));
-        }
-        for tag in &tags {
-            if tag.len() > MAX_TAG_LENGTH {
-                return Err(PqpgpError::validation(format!(
-                    "Tag exceeds maximum length of {} characters",
-                    MAX_TAG_LENGTH
-                )));
-            }
-            if tag.is_empty() {
-                return Err(PqpgpError::validation("Tags cannot be empty"));
-            }
-        }
-
         Ok(Self {
             node_type: NodeType::BoardGenesis,
             forum_hash,
             name,
             description,
-            tags,
             creator_identity: creator_public_key.as_bytes(),
             created_at: current_timestamp_millis(),
         })
@@ -167,7 +134,6 @@ impl BoardGenesis {
     /// * `forum_hash` - Hash of the parent forum genesis
     /// * `name` - Human-readable board name
     /// * `description` - Board description
-    /// * `tags` - Optional categorization tags
     /// * `creator_public_key` - Public key of the board creator
     /// * `creator_private_key` - Private key to sign with
     /// * `password` - Optional password if the private key is encrypted
@@ -182,13 +148,11 @@ impl BoardGenesis {
         forum_hash: ContentHash,
         name: String,
         description: String,
-        tags: Vec<String>,
         creator_public_key: &PublicKey,
         creator_private_key: &crate::crypto::PrivateKey,
         password: Option<&crate::crypto::Password>,
     ) -> Result<Self> {
-        let content =
-            BoardGenesisContent::new(forum_hash, name, description, tags, creator_public_key)?;
+        let content = BoardGenesisContent::new(forum_hash, name, description, creator_public_key)?;
         let content_hash = content.content_hash()?;
         let signature = sign_data(creator_private_key, &content, password)?;
 
@@ -235,11 +199,6 @@ impl BoardGenesis {
     /// Returns the board description.
     pub fn description(&self) -> &str {
         &self.content.description
-    }
-
-    /// Returns the board tags.
-    pub fn tags(&self) -> &[String] {
-        &self.content.tags
     }
 
     /// Returns the parent forum hash.
@@ -298,7 +257,6 @@ mod tests {
             *forum.hash(),
             "Test Board".to_string(),
             "A test board for discussions".to_string(),
-            vec!["general".to_string(), "testing".to_string()],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -307,7 +265,6 @@ mod tests {
 
         assert_eq!(board.name(), "Test Board");
         assert_eq!(board.description(), "A test board for discussions");
-        assert_eq!(board.tags(), &["general", "testing"]);
         assert_eq!(board.forum_hash(), forum.hash());
         assert_eq!(board.node_type(), NodeType::BoardGenesis);
     }
@@ -321,7 +278,6 @@ mod tests {
             *forum.hash(),
             "Verified Board".to_string(),
             "Testing verification".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -343,7 +299,6 @@ mod tests {
             *forum.hash(),
             "Board".to_string(),
             "Description".to_string(),
-            vec![],
             creator_keypair.public_key(),
             creator_keypair.private_key(),
             None,
@@ -362,7 +317,6 @@ mod tests {
             forum_hash,
             "".to_string(),
             "Description".to_string(),
-            vec![],
             keypair.public_key(),
         );
 
@@ -379,83 +333,10 @@ mod tests {
             forum_hash,
             long_name,
             "Description".to_string(),
-            vec![],
             keypair.public_key(),
         );
 
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_board_genesis_too_many_tags() {
-        let keypair = create_test_keypair();
-        let forum_hash = ContentHash::from_bytes([0u8; 64]);
-
-        let too_many_tags: Vec<String> = (0..MAX_BOARD_TAGS + 1)
-            .map(|i| format!("tag{}", i))
-            .collect();
-
-        let result = BoardGenesisContent::new(
-            forum_hash,
-            "Board".to_string(),
-            "Description".to_string(),
-            too_many_tags,
-            keypair.public_key(),
-        );
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_board_genesis_tag_too_long() {
-        let keypair = create_test_keypair();
-        let forum_hash = ContentHash::from_bytes([0u8; 64]);
-
-        let long_tag = "x".repeat(MAX_TAG_LENGTH + 1);
-        let result = BoardGenesisContent::new(
-            forum_hash,
-            "Board".to_string(),
-            "Description".to_string(),
-            vec![long_tag],
-            keypair.public_key(),
-        );
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_board_genesis_empty_tag_rejected() {
-        let keypair = create_test_keypair();
-        let forum_hash = ContentHash::from_bytes([0u8; 64]);
-
-        let result = BoardGenesisContent::new(
-            forum_hash,
-            "Board".to_string(),
-            "Description".to_string(),
-            vec!["valid".to_string(), "".to_string()],
-            keypair.public_key(),
-        );
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_board_genesis_no_tags() {
-        let keypair = create_test_keypair();
-        let forum = create_test_forum(&keypair);
-
-        let board = BoardGenesis::create(
-            *forum.hash(),
-            "No Tags Board".to_string(),
-            "A board without tags".to_string(),
-            vec![],
-            keypair.public_key(),
-            keypair.private_key(),
-            None,
-        )
-        .expect("Failed to create board genesis");
-
-        assert!(board.tags().is_empty());
     }
 
     #[test]
@@ -467,7 +348,6 @@ mod tests {
             *forum.hash(),
             "Serialization Test".to_string(),
             "Testing serialization".to_string(),
-            vec!["test".to_string()],
             keypair.public_key(),
             keypair.private_key(),
             None,

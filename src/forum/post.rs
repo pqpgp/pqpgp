@@ -259,7 +259,6 @@ mod tests {
             *forum.hash(),
             "Test Board".to_string(),
             "A test board".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
@@ -462,23 +461,28 @@ mod tests {
     }
 
     #[test]
-    fn test_post_no_parents_allowed() {
+    fn test_post_struct_allows_empty_parents() {
+        // NOTE: While Post::create allows empty parent_hashes at the struct level,
+        // the validation layer (validate_post) now requires at least one parent
+        // to prevent orphaned subtrees in the DAG. This test verifies the struct
+        // creation behavior; the validation behavior is tested in validation.rs.
         let keypair = create_test_keypair();
         let thread = create_test_thread(&keypair);
 
-        // A post with no parent hashes (just references thread)
+        // A post with no parent hashes (struct creation succeeds)
         let post = Post::create(
             *thread.hash(),
-            vec![], // No parents
+            vec![], // No parents - struct creation works
             "Post without parents".to_string(),
             None,
             keypair.public_key(),
             keypair.private_key(),
             None,
         )
-        .expect("Failed to create post");
+        .expect("Post struct creation should succeed even with empty parents");
 
         assert!(post.parent_hashes().is_empty());
+        // NOTE: This post would fail validate_post() because it has no parent hashes
     }
 
     #[test]

@@ -187,7 +187,6 @@ pub struct BoardDisplayInfo {
     pub hash: String,
     pub name: String,
     pub description: String,
-    pub tags: Vec<String>,
     pub created_at_display: String,
     pub thread_count: usize,
 }
@@ -279,7 +278,6 @@ pub struct BoardViewTemplate {
     pub board_hash: String,
     pub board_name: String,
     pub board_description: String,
-    pub board_tags: Vec<String>,
     pub threads: Vec<ThreadDisplayInfo>,
     pub signing_keys: Vec<SigningKeyInfo>,
     pub board_moderators: Vec<ModeratorDisplayInfo>,
@@ -315,8 +313,6 @@ pub struct ThreadViewTemplate {
     pub signing_keys: Vec<SigningKeyInfo>,
     /// Whether the current user is a moderator (can hide/unhide content).
     pub is_moderator: bool,
-    /// All boards in the forum (for move thread dropdown).
-    pub all_boards: Vec<BoardDisplayInfo>,
     pub result: Option<String>,
     pub error: Option<String>,
     pub has_result: bool,
@@ -326,6 +322,33 @@ pub struct ThreadViewTemplate {
     pub next_cursor: Option<String>,
     pub current_cursor: Option<String>,
     pub total_posts: usize,
+    pub has_more: bool,
+}
+
+/// Move thread page template - shows paginated board selection.
+#[derive(Template)]
+#[template(path = "move_thread.html")]
+pub struct MoveThreadTemplate {
+    pub active_page: String,
+    pub csrf_token: String,
+    pub forum_hash: String,
+    pub forum_name: String,
+    pub board_hash: String,
+    pub board_name: String,
+    pub thread_hash: String,
+    pub thread_title: String,
+    /// Available destination boards (paginated).
+    pub boards: Vec<BoardDisplayInfo>,
+    pub signing_keys: Vec<SigningKeyInfo>,
+    pub result: Option<String>,
+    pub error: Option<String>,
+    pub has_result: bool,
+    pub has_error: bool,
+    // Pagination
+    pub prev_cursor: Option<String>,
+    pub next_cursor: Option<String>,
+    pub current_cursor: Option<String>,
+    pub total_boards: usize,
     pub has_more: bool,
 }
 

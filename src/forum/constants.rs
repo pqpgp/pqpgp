@@ -22,12 +22,6 @@ pub const MAX_THREAD_BODY_SIZE: usize = 100 * 1024;
 /// Maximum post body size (100KB).
 pub const MAX_POST_BODY_SIZE: usize = 100 * 1024;
 
-/// Maximum number of tags per board.
-pub const MAX_TAGS_COUNT: usize = 10;
-
-/// Maximum length of a single tag (64 bytes).
-pub const MAX_TAG_SIZE: usize = 64;
-
 // =============================================================================
 // DAG Limits
 // =============================================================================
@@ -93,9 +87,6 @@ pub const MAX_HASH_INPUT_SIZE: usize = 128;
 
 /// Maximum password input size.
 pub const MAX_PASSWORD_SIZE: usize = 1024;
-
-/// Maximum tags input size (comma-separated).
-pub const MAX_TAGS_INPUT_SIZE: usize = 1024;
 
 // =============================================================================
 // Display Constants

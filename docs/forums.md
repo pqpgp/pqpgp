@@ -81,7 +81,10 @@ When receiving a node, the system validates:
 5. **Thread isolation** - Posts stay within their thread
 6. **Permission checks** - Author has required permissions
 7. **Timestamp sanity** - Within ±5 minutes of current time
-8. **Size limits** - Content within allowed bounds
+8. **Timestamp monotonicity** - Nodes cannot have timestamps before their parents/targets
+9. **Required parents** - Posts must have at least one parent hash (prevents orphaned subtrees)
+10. **Cycle detection** - Self-referencing nodes are rejected (prevents DAG corruption)
+11. **Size limits** - Content within allowed bounds
 
 Invalid nodes are rejected and never stored.
 
@@ -160,14 +163,17 @@ All security comes from client-side cryptographic verification.
 
 ## Security Properties
 
-| Attack                  | Prevention                         |
-| ----------------------- | ---------------------------------- |
-| Content modification    | Hash changes, signature invalid    |
-| Fake authorship         | Signature verification fails       |
-| Backdating nodes        | Parent references must exist       |
-| History rewriting       | Descendants have broken references |
-| Unauthorized moderation | Permission checks                  |
-| Replay attacks          | Content hash uniqueness            |
+| Attack                  | Prevention                                 |
+| ----------------------- | ------------------------------------------ |
+| Content modification    | Hash changes, signature invalid            |
+| Fake authorship         | Signature verification fails               |
+| Backdating nodes        | Timestamp monotonicity enforcement         |
+| History rewriting       | Descendants have broken references         |
+| Unauthorized moderation | Permission checks                          |
+| Replay attacks          | Content hash uniqueness                    |
+| DAG cycle attacks       | Self-reference detection, cycle validation |
+| Orphaned subtrees       | Required parent hash validation            |
+| Timing attacks          | Constant-time moderator iteration          |
 
 ## API Endpoints
 
@@ -349,7 +355,7 @@ src/forum/
 ├── moderation.rs         # ModActionNode
 ├── permissions.rs        # Permission checking
 ├── dag.rs                # DagNode enum wrapper
-├── dag_ops.rs            # DAG operations (compute_missing, topological sort)
+├── dag_ops.rs            # DAG operations (compute_missing, O(n+e) topological sort)
 ├── sync.rs               # Sync protocol types
 ├── storage.rs            # Client-side storage
 ├── state.rs              # Forum state management

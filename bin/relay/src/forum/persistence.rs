@@ -304,13 +304,24 @@ impl ForumPersistence {
             match validate_node(node, &ctx) {
                 Ok(result) if result.is_valid => {
                     // Node is valid - add it to state and tracking
-                    state.add_node(node.clone());
-                    validated_nodes.insert(node_hash, node.clone());
+                    match state.add_node(node.clone()) {
+                        Ok(_) => {
+                            validated_nodes.insert(node_hash, node.clone());
 
-                    // Update permissions if this is a mod action
-                    if let DagNode::ModAction(action) = node {
-                        if let Some(perms) = permissions.get_mut(forum_hash) {
-                            let _ = perms.apply_action(action);
+                            // Update permissions if this is a mod action
+                            if let DagNode::ModAction(action) = node {
+                                if let Some(perms) = permissions.get_mut(forum_hash) {
+                                    let _ = perms.apply_action(action);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to add valid node {} to state: {}",
+                                node_hash.short(),
+                                e
+                            );
+                            rejected_count += 1;
                         }
                     }
                 }

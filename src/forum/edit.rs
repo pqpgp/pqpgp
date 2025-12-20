@@ -417,7 +417,6 @@ mod tests {
             *forum.hash(),
             "Test Board".to_string(),
             "A test board".to_string(),
-            vec![],
             keypair.public_key(),
             keypair.private_key(),
             None,
