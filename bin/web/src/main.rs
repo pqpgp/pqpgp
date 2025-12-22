@@ -268,9 +268,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/", get(index))
         .route("/keys", get(list_keys))
         .route("/keys/generate", post(generate_key))
-        .route("/keys/delete/:key_id", post(delete_key))
-        .route("/keys/export/:key_id", get(export_public_key))
-        .route("/keys/view/:key_id", get(view_public_key))
+        .route("/keys/delete/{key_id}", post(delete_key))
+        .route("/keys/export/{key_id}", get(export_public_key))
+        .route("/keys/view/{key_id}", get(view_public_key))
         .route("/keys/import", post(import_public_key))
         .route("/encrypt", get(encrypt_page).post(encrypt_handler))
         .route("/decrypt", get(decrypt_page).post(decrypt_handler))
@@ -283,7 +283,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/chat", get(chat_page))
         .route("/chat/add-contact", post(add_chat_contact))
         .route(
-            "/chat/delete-contact/:fingerprint",
+            "/chat/delete-contact/{fingerprint}",
             post(delete_chat_contact),
         )
         .route("/chat/send", post(send_chat_message))
@@ -298,109 +298,112 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             get(handlers::forum::forum_list_page).post(handlers::forum::create_forum_handler),
         )
         .route("/forum/join", post(handlers::forum::join_forum_handler))
-        .route("/forum/:forum_hash", get(handlers::forum::forum_view_page))
+        .route("/forum/{forum_hash}", get(handlers::forum::forum_view_page))
         .route(
-            "/forum/:forum_hash/board/create",
+            "/forum/{forum_hash}/board/create",
             post(handlers::forum::create_board_handler),
         )
         .route(
-            "/forum/:forum_hash/moderator/add",
+            "/forum/{forum_hash}/moderator/add",
             post(handlers::forum::add_moderator_handler),
         )
         .route(
-            "/forum/:forum_hash/moderator/remove",
+            "/forum/{forum_hash}/moderator/remove",
             post(handlers::forum::remove_moderator_handler),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash",
+            "/forum/{forum_hash}/board/{board_hash}",
             get(handlers::forum::board_view_page),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash/moderator/add",
+            "/forum/{forum_hash}/board/{board_hash}/moderator/add",
             post(handlers::forum::add_board_moderator_handler),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash/moderator/remove",
+            "/forum/{forum_hash}/board/{board_hash}/moderator/remove",
             post(handlers::forum::remove_board_moderator_handler),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash/thread/create",
+            "/forum/{forum_hash}/board/{board_hash}/thread/create",
             post(handlers::forum::create_thread_handler),
         )
         .route(
-            "/forum/:forum_hash/thread/:thread_hash",
+            "/forum/{forum_hash}/thread/{thread_hash}",
             get(handlers::forum::thread_view_page),
         )
         .route(
-            "/forum/:forum_hash/thread/:thread_hash/reply",
+            "/forum/{forum_hash}/thread/{thread_hash}/reply",
             post(handlers::forum::post_reply_handler),
         )
         .route(
-            "/forum/:forum_hash/thread/:thread_hash/hide",
+            "/forum/{forum_hash}/thread/{thread_hash}/hide",
             post(handlers::forum::hide_thread_handler),
         )
         .route(
-            "/forum/:forum_hash/thread/:thread_hash/hide_post",
+            "/forum/{forum_hash}/thread/{thread_hash}/hide_post",
             post(handlers::forum::hide_post_handler),
         )
         .route(
-            "/forum/:forum_hash/thread/:thread_hash/move",
+            "/forum/{forum_hash}/thread/{thread_hash}/move",
             get(handlers::forum::move_thread_page_handler)
                 .post(handlers::forum::move_thread_handler),
         )
         .route(
-            "/forum/:forum_hash/edit",
+            "/forum/{forum_hash}/edit",
             post(handlers::forum::edit_forum_handler),
         )
         .route(
-            "/forum/:forum_hash/remove",
+            "/forum/{forum_hash}/remove",
             post(handlers::forum::remove_forum_handler),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash/edit",
+            "/forum/{forum_hash}/board/{board_hash}/edit",
             post(handlers::forum::edit_board_handler),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash/hide",
+            "/forum/{forum_hash}/board/{board_hash}/hide",
             post(handlers::forum::hide_board_handler),
         )
         .route(
-            "/forum/:forum_hash/board/:board_hash/unhide",
+            "/forum/{forum_hash}/board/{board_hash}/unhide",
             post(handlers::forum::unhide_board_handler),
         )
         // Private message routes
-        .route("/forum/:forum_hash/pm", get(handlers::forum::pm_inbox_page))
         .route(
-            "/forum/:forum_hash/pm/identity/create",
+            "/forum/{forum_hash}/pm",
+            get(handlers::forum::pm_inbox_page),
+        )
+        .route(
+            "/forum/{forum_hash}/pm/identity/create",
             post(handlers::forum::create_encryption_identity_handler),
         )
         .route(
-            "/forum/:forum_hash/pm/send",
+            "/forum/{forum_hash}/pm/send",
             post(handlers::forum::send_pm_handler),
         )
         .route(
-            "/forum/:forum_hash/pm/scan",
+            "/forum/{forum_hash}/pm/scan",
             post(handlers::forum::scan_pm_handler),
         )
         .route(
-            "/forum/:forum_hash/pm/compose",
+            "/forum/{forum_hash}/pm/compose",
             get(handlers::forum::pm_compose_page),
         )
         .route(
-            "/forum/:forum_hash/pm/conversation/:conversation_id",
+            "/forum/{forum_hash}/pm/conversation/{conversation_id}",
             get(handlers::forum::pm_conversation_page),
         )
         .route(
-            "/forum/:forum_hash/pm/conversation/:conversation_id/reply",
+            "/forum/{forum_hash}/pm/conversation/{conversation_id}/reply",
             post(handlers::forum::reply_pm_handler),
         )
         .route(
-            "/forum/:forum_hash/pm/conversation/:conversation_id/delete",
+            "/forum/{forum_hash}/pm/conversation/{conversation_id}/delete",
             post(handlers::forum::pm_delete_conversation),
         )
         // Maintenance endpoints
         .route(
-            "/forum/:forum_hash/recompute-heads",
+            "/forum/{forum_hash}/recompute-heads",
             post(handlers::forum::recompute_heads_handler),
         )
         .nest_service("/static", ServeDir::new("src/web/static"))

@@ -29,10 +29,10 @@
     <p style="color: #718096; font-style: italic;">No moderators assigned yet.</p>
     {% else %}
     <ul style="margin: 0.5em 0; padding-left: 1.5em;">
-        {% for mod in moderators %}
+        {% for moderator in moderators %}
         <li>
-            <span class="key-id">{{ mod.identity_fingerprint }}</span>
-            {% if mod.is_owner %}
+            <span class="key-id">{{ moderator.identity_fingerprint }}</span>
+            {% if moderator.is_owner %}
             <span class="status-badge status-success">Owner</span>
             {% else %}
             <span class="status-badge status-warning">Moderator</span>
@@ -217,8 +217,8 @@
             <select id="remove_target_fingerprint" name="target_fingerprint" required>
                 <option value="">-- Select moderator to remove --</option>
                 {% for key in signing_keys %}
-                {% for mod in moderators %}
-                {% if !mod.is_owner && key.fingerprint == mod.identity_fingerprint %}
+                {% for moderator in moderators %}
+                {% if !moderator.is_owner && key.fingerprint == moderator.identity_fingerprint %}
                 <option value="{{ key.fingerprint }}">{{ key.fingerprint }} ({{ key.user_id }})</option>
                 {% endif %}
                 {% endfor %}

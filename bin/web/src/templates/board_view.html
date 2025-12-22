@@ -25,9 +25,9 @@
     <p style="color: #718096; font-style: italic;">No board-specific moderators assigned. Forum moderators can manage this board.</p>
     {% else %}
     <ul style="margin: 0.5em 0; padding-left: 1.5em;">
-        {% for mod in board_moderators %}
+        {% for moderator in board_moderators %}
         <li>
-            <span class="key-id">{{ mod.identity_fingerprint }}</span>
+            <span class="key-id">{{ moderator.identity_fingerprint }}</span>
             <span class="status-badge status-warning">Board Moderator</span>
         </li>
         {% endfor %}
@@ -209,8 +209,8 @@
             <select id="remove_target_fingerprint" name="target_fingerprint" required>
                 <option value="">-- Select board moderator to remove --</option>
                 {% for key in signing_keys %}
-                {% for mod in board_moderators %}
-                {% if key.fingerprint == mod.identity_fingerprint %}
+                {% for moderator in board_moderators %}
+                {% if key.fingerprint == moderator.identity_fingerprint %}
                 <option value="{{ key.fingerprint }}">{{ key.fingerprint }} ({{ key.user_id }})</option>
                 {% endif %}
                 {% endfor %}
