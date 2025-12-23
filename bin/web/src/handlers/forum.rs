@@ -1654,10 +1654,10 @@ pub async fn post_reply_handler(
         .filter(|h| !h.is_empty())
         .and_then(|h| ContentHash::from_hex(&h).ok());
 
-    // Create post
+    // Create post with thread root as parent for DAG ordering
     let post = match Post::create(
         thread_content_hash,
-        vec![], // No direct parent posts for simplicity
+        vec![thread_content_hash], // Thread root is the parent
         data.body.clone(),
         quote_hash,
         &signing.public_key,
