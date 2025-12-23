@@ -157,21 +157,23 @@ impl ForumClient {
             // Add to nodes map
             nodes.insert(*node.hash(), node.clone());
 
-            // Update permissions if this is a forum genesis or mod action
-            let mut builder = PermissionBuilder::new();
-            // Copy existing permissions by replaying forum geneses
-            for hash in permissions.keys() {
-                if let Some(existing_node) = nodes.get(hash) {
-                    if let DagNode::ForumGenesis(_) = existing_node {
-                        let _ = builder.process_node(existing_node);
+            // Incrementally update permissions instead of rebuilding from scratch.
+            // Only ForumGenesis and ModAction nodes affect permissions.
+            match &node {
+                DagNode::ForumGenesis(genesis) => {
+                    // New forum - create its permission state
+                    let forum_perms = ForumPermissions::from_genesis(genesis);
+                    permissions.insert(*genesis.hash(), forum_perms);
+                }
+                DagNode::ModAction(action) => {
+                    // Apply action directly to existing permissions (O(1) instead of O(n) replay)
+                    if let Some(perms) = permissions.get_mut(action.forum_hash()) {
+                        // Ignore errors - validation already passed
+                        let _ = perms.apply_action(action);
                     }
                 }
-            }
-            // Process new node
-            let _ = builder.process_node(&node);
-            // Merge new permissions
-            for (hash, new_perms) in builder.into_permissions() {
-                permissions.insert(hash, new_perms);
+                // Other node types don't affect permissions
+                _ => {}
             }
 
             stored += 1;

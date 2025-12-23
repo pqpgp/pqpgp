@@ -58,6 +58,10 @@ pub struct ForumState {
     /// Enables O(1) post listing per thread instead of O(n) filtering.
     thread_posts: HashMap<ContentHash, Vec<ContentHash>>,
 
+    /// Maps thread hash → current board hash.
+    /// Enables O(1) lookup for MoveThread operations instead of O(boards) search.
+    thread_board: HashMap<ContentHash, ContentHash>,
+
     /// Pre-computed topological order of all nodes.
     /// Lazily rebuilt when needed (None = needs rebuild).
     /// Enables O(k) pagination for export instead of O(n log n) per request.
@@ -96,6 +100,7 @@ impl ForumState {
             boards: Vec::new(),
             board_threads: HashMap::new(),
             thread_posts: HashMap::new(),
+            thread_board: HashMap::new(),
             topological_cache: Some(vec![hash]), // Genesis is the only node
             nodes_by_timestamp,
         }
@@ -137,8 +142,13 @@ impl ForumState {
         let timestamp = node.created_at();
         self.nodes_by_timestamp.insert((timestamp, hash), ());
 
-        // Invalidate topological cache since we added a new node
-        self.topological_cache = None;
+        // Incrementally update topological cache if it exists.
+        // Since nodes must arrive with parents already present, appending
+        // preserves the topological invariant (parents before children).
+        if let Some(ref mut cache) = self.topological_cache {
+            cache.push(hash);
+        }
+        // If cache is None, leave it for lazy rebuild on first access
 
         // Store the node
         self.nodes.insert(hash, node);
@@ -163,6 +173,8 @@ impl ForumState {
                 // Add thread to its board's thread list
                 let board_hash = *thread.board_hash();
                 self.board_threads.entry(board_hash).or_default().push(hash);
+                // Track thread's current board for O(1) MoveThread lookups
+                self.thread_board.insert(hash, board_hash);
                 // Initialize empty post list for this thread
                 self.thread_posts.entry(hash).or_default();
             }
@@ -180,19 +192,9 @@ impl ForumState {
                     if let (Some(thread_hash), Some(dest_board_hash)) =
                         (action.target_node_hash(), action.board_hash())
                     {
-                        // Find and remove thread from its current board's index
-                        // We need to find which board currently has this thread
-                        let mut source_board = None;
-                        for (board, threads) in &self.board_threads {
-                            if threads.contains(thread_hash) {
-                                source_board = Some(*board);
-                                break;
-                            }
-                        }
-
-                        // Remove from source board if found
-                        if let Some(source) = source_board {
-                            if let Some(threads) = self.board_threads.get_mut(&source) {
+                        // O(1) lookup using reverse index instead of O(boards) search
+                        if let Some(source_board) = self.thread_board.get(thread_hash).copied() {
+                            if let Some(threads) = self.board_threads.get_mut(&source_board) {
                                 threads.retain(|h| h != thread_hash);
                             }
                         }
@@ -202,6 +204,9 @@ impl ForumState {
                             .entry(*dest_board_hash)
                             .or_default()
                             .push(*thread_hash);
+
+                        // Update reverse index
+                        self.thread_board.insert(*thread_hash, *dest_board_hash);
                     }
                 }
             }
@@ -300,6 +305,7 @@ impl ForumState {
         self.boards.clear();
         self.board_threads.clear();
         self.thread_posts.clear();
+        self.thread_board.clear();
         self.nodes_by_timestamp.clear();
 
         // Collect nodes in topological order first to avoid borrow conflict
@@ -307,6 +313,9 @@ impl ForumState {
             .into_iter()
             .cloned()
             .collect();
+
+        // Build topological cache while we have the sorted nodes
+        let topo_cache: Vec<ContentHash> = ordered_nodes.iter().map(|n| *n.hash()).collect();
 
         for node in &ordered_nodes {
             let _ = builder.process_node(node);
@@ -327,8 +336,8 @@ impl ForumState {
             self.permissions = builder.into_permissions().remove(&hash);
         }
 
-        // Invalidate topological cache to force rebuild on next access
-        self.topological_cache = None;
+        // Store the topological cache we already computed
+        self.topological_cache = Some(topo_cache);
     }
 
     // ==========================================================================
