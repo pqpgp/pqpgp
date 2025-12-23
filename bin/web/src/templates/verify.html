@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="card">
-    <h2>✅ Verify Signature</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>Verify Signature</h2>
     <p>Verify a digital signature to confirm the message's authenticity and integrity. This uses quantum-resistant ML-DSA-87 verification.</p>
     
     {% if has_error %}
@@ -18,7 +18,7 @@
         <div class="form-group">
             <label for="message">Original Message:</label>
             <textarea name="message" id="message" placeholder="Enter the original message that was signed..." required autocomplete="off" spellcheck="false"></textarea>
-            <small style="color: #718096; display: block; margin-top: 5px;">
+            <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                 This must be the exact same message that was originally signed. Any changes will cause verification to fail.
             </small>
         </div>
@@ -26,21 +26,21 @@
         <div class="form-group">
             <label for="signature">Digital Signature (PGP Armored):</label>
             <textarea name="signature" id="signature" placeholder="-----BEGIN PGP SIGNATURE-----&#10;&#10;Paste the complete signature here...&#10;&#10;-----END PGP SIGNATURE-----" required autocomplete="off" spellcheck="false"></textarea>
-            <small style="color: #718096; display: block; margin-top: 5px;">
+            <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                 Paste the complete PGP armored signature including the -----BEGIN PGP SIGNATURE----- and -----END PGP SIGNATURE----- lines.
             </small>
         </div>
         
-        <button type="submit" class="btn">✅ Verify Signature</button>
+        <button type="submit" class="btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>Verify Signature</button>
     </form>
 </div>
 
 {% if has_result %}
     {% if is_valid.unwrap() %}
         <div class="card">
-            <h2>✅ Signature is Valid</h2>
+            <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>Signature is Valid</h2>
             <div style="padding: 20px; background-color: #f0fff4; border: 2px solid #48bb78; border-radius: 8px; text-align: center;">
-                <div style="font-size: 4em; margin-bottom: 10px;">✅</div>
+                <div style="margin-bottom: 10px;"><svg style="width: 64px; height: 64px; fill: #22543d;" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
                 <h3 style="color: #22543d; margin: 10px 0;">Verification Successful</h3>
                 <p style="color: #22543d; margin-bottom: 0;">
                     The signature is authentic and the message has not been tampered with.
@@ -69,7 +69,7 @@
             </div>
             
             <div style="margin-top: 20px; padding: 15px; background-color: #fed7d7; border: 1px solid #feb2b2; border-radius: 8px;">
-                <h4 style="margin-top: 0; color: #742a2a;">⚠️ Possible Causes</h4>
+                <h4 style="margin-top: 0; color: #742a2a; display: flex; align-items: center;"><svg class="icon icon-lg" style="margin-right: 8px;" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>Possible Causes</h4>
                 <ul style="margin-bottom: 0; color: #742a2a;">
                     <li><strong>Message Modified:</strong> The message content may have been changed</li>
                     <li><strong>Wrong Signature:</strong> The signature might be for a different message</li>
@@ -84,17 +84,17 @@
 <div class="card">
     <h2>💡 How Signature Verification Works</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid var(--red-light);">
             <h4 style="margin-top: 0; color: #4a5568;">1. Message Hashing</h4>
             <p>The original message is hashed with SHA3-512 to create a unique fingerprint.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">2. Key Lookup</h4>
             <p>System finds the signer's public key based on the key ID in the signature.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #ed8936;">
             <h4 style="margin-top: 0; color: #4a5568;">3. Cryptographic Verification</h4>
             <p>ML-DSA-87 algorithm verifies the signature against the hash and public key.</p>
         </div>

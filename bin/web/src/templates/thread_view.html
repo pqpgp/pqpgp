@@ -7,7 +7,7 @@
 
 <div class="card">
     <h2>{{ thread_title }}</h2>
-    <p style="color: #718096; font-size: 0.9em;">
+    <p style="color: var(--text-muted); font-size: 0.9em;">
         In board: <strong>{{ board_name }}</strong> &nbsp;|&nbsp; Forum: <strong>{{ forum_name }}</strong>
     </p>
 
@@ -20,10 +20,10 @@
     {% endif %}
 
     <!-- Original post -->
-    <div style="background: #f7fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea;">
+    <div style="background: var(--bg-subtle); padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid var(--red-light);">
         <div style="white-space: pre-wrap; font-size: 1.05em;">{{ thread_body }}</div>
-        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; color: #718096; font-size: 0.85em;">
-            <span class="key-id">{{ thread_author_short }}</span>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.85em;">
+            <a href="/forum/{{ forum_hash }}/user/{{ thread_author_fingerprint }}" class="key-id" style="text-decoration: none;">{{ thread_author_short }}</a>
             &nbsp;|&nbsp; {{ thread_created_at_display }}
         </div>
     </div>
@@ -31,19 +31,19 @@
     <!-- Replies -->
     <h3>Replies ({{ total_posts }} total)</h3>
     {% if posts.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No replies yet. Be the first to respond!</p>
+    <p style="color: var(--text-muted); font-style: italic;">No replies yet. Be the first to respond!</p>
     {% else %}
     {% for post in posts %}
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 15px 0; border: 1px solid #e2e8f0;">
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 15px 0; border: 1px solid var(--border-light);">
         {% if post.quote_body.is_some() %}
-        <div style="background: #edf2f7; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; border-left: 3px solid #718096; color: #4a5568; font-size: 0.9em;">
+        <div style="background: #f5f5f5; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; border-left: 3px solid var(--text-muted); color: var(--text-dark); font-size: 0.9em;">
             <em>Quoting:</em><br>
             <div style="white-space: pre-wrap;">{{ post.quote_body.as_ref().unwrap() }}</div>
         </div>
         {% endif %}
         <div style="white-space: pre-wrap;">{{ post.body }}</div>
-        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; color: #718096; font-size: 0.85em;">
-            <span class="key-id">{{ post.author_short }}</span>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.85em;">
+            <a href="/forum/{{ forum_hash }}/user/{{ post.author_fingerprint }}" class="key-id" style="text-decoration: none;">{{ post.author_short }}</a>
             &nbsp;|&nbsp; {{ post.created_at_display }}
             &nbsp;|&nbsp;
             <a href="#reply_form" class="btn btn-small" style="padding: 4px 12px; font-size: 12px;">Quote</a>
@@ -52,7 +52,7 @@
     {% endfor %}
 
     <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #718096; font-size: 0.9em;">Showing {{ posts.len() }} of {{ total_posts }} posts</span>
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ posts.len() }} of {{ total_posts }} posts</span>
         <div>
             {% if let Some(prev) = prev_cursor %}
             <a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>
@@ -107,7 +107,7 @@
 {% if is_moderator %}
 <div class="card">
     <h2>Moderation Actions</h2>
-    <p style="color: #718096;">As a moderator, you can hide threads, move them to different boards, and delete posts.</p>
+    <p style="color: var(--text-muted);">As a moderator, you can hide threads, move them to different boards, and delete posts.</p>
 
     <h3>Move Thread to Different Board</h3>
     <p><a href="/forum/{{ forum_hash }}/thread/{{ thread_hash }}/move" class="btn">Select Destination Board &rarr;</a></p>

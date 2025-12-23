@@ -20,7 +20,7 @@
 <div class="card">
     <h2>PM Identities</h2>
     {% if our_identities.is_empty() %}
-    <p style="color: #718096;">No PM identities created yet. Create one below to start sending private messages.</p>
+    <p style="color: var(--text-muted);">No PM identities created yet. Create one below to start sending private messages.</p>
     {% else %}
     <table class="table">
         <thead>
@@ -62,7 +62,7 @@
         <div class="form-group">
             <label for="otp_count">One-time Prekeys to Generate:</label>
             <input type="number" name="otp_count" id="otp_count" value="10" min="1" max="100">
-            <small style="color: #718096;">More prekeys = more forward secrecy for initial messages</small>
+            <small style="color: var(--text-muted);">More prekeys = more forward secrecy for initial messages</small>
         </div>
         <button type="submit" class="btn">Create PM Identity</button>
     </form>
@@ -73,7 +73,7 @@
 <div class="card">
     <h2>Compose New Message</h2>
     {% if recipients.is_empty() %}
-    <p style="color: #718096;">No other users have published encryption identities in this forum yet.</p>
+    <p style="color: var(--text-muted);">No other users have published encryption identities in this forum yet.</p>
     {% else %}
     <form method="post" action="/forum/{{ forum_hash }}/pm/send">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -115,7 +115,7 @@
 <div class="card">
     <h2>Conversations</h2>
     {% if conversations.is_empty() %}
-    <p style="color: #718096;">No conversations yet. Send a message to start one!</p>
+    <p style="color: var(--text-muted);">No conversations yet. Send a message to start one!</p>
     {% else %}
     <table class="table">
         <thead>
@@ -143,7 +143,7 @@
     </table>
 
     <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #718096; font-size: 0.9em;">Showing {{ conversations.len() }} of {{ total_conversations }} conversations</span>
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ conversations.len() }} of {{ total_conversations }} conversations</span>
         <div>
             {% if let Some(prev) = prev_cursor %}
             <a href="/forum/{{ forum_hash }}/pm?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>

@@ -300,6 +300,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/forum/join", post(handlers::forum::join_forum_handler))
         .route("/forum/{forum_hash}", get(handlers::forum::forum_view_page))
         .route(
+            "/forum/{forum_hash}/user/{fingerprint}",
+            get(handlers::forum::user_profile_page),
+        )
+        .route(
             "/forum/{forum_hash}/board/create",
             post(handlers::forum::create_board_handler),
         )
@@ -406,7 +410,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "/forum/{forum_hash}/recompute-heads",
             post(handlers::forum::recompute_heads_handler),
         )
-        .nest_service("/static", ServeDir::new("src/web/static"))
+        .nest_service("/static", ServeDir::new("bin/web/src/static"))
         .layer(session_layer)
         // Security headers to prevent common attacks
         .layer(SetResponseHeaderLayer::if_not_present(

@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="card">
-    <h2>✍️ Sign Message</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>Sign Message</h2>
     <p>Create a quantum-resistant digital signature for your message using ML-DSA-87 algorithm. This proves the message's authenticity and integrity.</p>
     
     {% if has_error %}
@@ -30,7 +30,7 @@
                         <option value="{{ key.key_id }}">{{ key.user_id }} ({{ key.key_id }})</option>
                     {% endfor %}
                 </select>
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     Select the signing key you want to use for signing. Only you can create signatures with your signing key.
                 </small>
             </div>
@@ -38,7 +38,7 @@
             <div class="form-group">
                 <label for="message">Message to Sign:</label>
                 <textarea name="message" id="message" placeholder="Enter the message you want to sign..." required autocomplete="off" spellcheck="false"></textarea>
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     The signature will be mathematically bound to this exact message content. Any changes will invalidate the signature.
                 </small>
             </div>
@@ -46,25 +46,25 @@
             <div class="form-group">
                 <label for="password">Signing Key Password (if protected):</label>
                 <input type="password" name="password" id="password" placeholder="Enter password for encrypted signing key" autocomplete="current-password" spellcheck="false">
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     Leave empty if your signing key is not password-protected. Required if your key was generated with password protection.
                 </small>
             </div>
             
-            <button type="submit" class="btn">✍️ Sign Message</button>
+            <button type="submit" class="btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>Sign Message</button>
         </form>
     {% endif %}
 </div>
 
 {% if has_result %}
 <div class="card">
-    <h2>✅ Message Signed Successfully</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>Message Signed Successfully</h2>
     <p>Your message has been signed with a quantum-resistant digital signature in traditional PGP format. This includes both the cleartext message and signature for easy verification.</p>
     
     <div class="form-group">
         <label for="signature_output">PGP Signed Message (Ready to Share):</label>
         <div class="code-block">{{ result.as_ref().unwrap() }}</div>
-        <small style="color: #718096; display: block; margin-top: 10px;">
+        <small style="color: var(--text-muted); display: block; margin-top: 10px;">
             💡 This signed message can be shared directly - it contains both your message and signature. Recipients can verify it with your public key.
         </small>
     </div>
@@ -85,17 +85,17 @@
 <div class="card">
     <h2>💡 How Digital Signatures Work</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid var(--red-light);">
             <h4 style="margin-top: 0; color: #4a5568;">1. Message Hashing</h4>
             <p>Your message is hashed with SHA3-512 to create a unique fingerprint.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">2. Signature Creation</h4>
             <p>ML-DSA-87 algorithm creates a signature using your private key and the hash.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #ed8936;">
             <h4 style="margin-top: 0; color: #4a5568;">3. Verification</h4>
             <p>Others can verify the signature using your public key and the original message.</p>
         </div>

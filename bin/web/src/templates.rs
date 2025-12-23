@@ -197,7 +197,10 @@ pub struct ThreadDisplayInfo {
     pub hash: String,
     pub title: String,
     pub body_preview: String,
+    /// Short author fingerprint for display (first 16 hex chars).
     pub author_short: String,
+    /// Full author fingerprint for linking (128 hex chars).
+    pub author_fingerprint: String,
     pub post_count: usize,
     pub created_at_display: String,
 }
@@ -207,7 +210,10 @@ pub struct ThreadDisplayInfo {
 pub struct PostDisplayInfo {
     pub hash: String,
     pub body: String,
+    /// Short author fingerprint for display (first 16 hex chars).
     pub author_short: String,
+    /// Full author fingerprint for linking (128 hex chars).
+    pub author_fingerprint: String,
     pub quote_body: Option<String>,
     pub created_at_display: String,
 }
@@ -307,7 +313,10 @@ pub struct ThreadViewTemplate {
     pub thread_hash: String,
     pub thread_title: String,
     pub thread_body: String,
+    /// Short thread author fingerprint for display (first 16 hex chars).
     pub thread_author_short: String,
+    /// Full thread author fingerprint for linking (128 hex chars).
+    pub thread_author_fingerprint: String,
     pub thread_created_at_display: String,
     pub posts: Vec<PostDisplayInfo>,
     pub signing_keys: Vec<SigningKeyInfo>,
@@ -350,6 +359,37 @@ pub struct MoveThreadTemplate {
     pub current_cursor: Option<String>,
     pub total_boards: usize,
     pub has_more: bool,
+}
+
+/// User profile template - shows a user's threads and posts in a forum.
+#[derive(Template)]
+#[template(path = "user_profile.html")]
+pub struct UserProfileTemplate {
+    pub active_page: String,
+    /// CSRF token for potential future forms on this page.
+    #[allow(dead_code)]
+    pub csrf_token: String,
+    pub forum_hash: String,
+    pub forum_name: String,
+    pub user_fingerprint: String,
+    /// Threads created by this user.
+    pub threads: Vec<ThreadDisplayInfo>,
+    /// Posts/replies by this user.
+    pub posts: Vec<PostDisplayInfo>,
+    pub result: Option<String>,
+    pub error: Option<String>,
+    pub has_result: bool,
+    pub has_error: bool,
+    // Thread pagination
+    pub threads_prev_cursor: Option<String>,
+    pub threads_next_cursor: Option<String>,
+    pub threads_current_cursor: Option<String>,
+    pub threads_has_more: bool,
+    // Post pagination
+    pub posts_prev_cursor: Option<String>,
+    pub posts_next_cursor: Option<String>,
+    pub posts_current_cursor: Option<String>,
+    pub posts_has_more: bool,
 }
 
 // ============================================================================

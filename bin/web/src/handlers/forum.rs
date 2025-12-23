@@ -9,7 +9,7 @@ use crate::templates::{
     ForumDisplayInfo, ForumListTemplate, ForumViewTemplate, ModeratorDisplayInfo,
     MoveThreadTemplate, PMComposeTemplate, PMConversationTemplate, PMInboxTemplate,
     PMRecipientInfo, PostDisplayInfo, PrivateMessageInfo, SigningKeyInfo, ThreadDisplayInfo,
-    ThreadViewTemplate,
+    ThreadViewTemplate, UserProfileTemplate,
 };
 use crate::AppState;
 use crate::SharedForumPersistence;
@@ -84,7 +84,7 @@ async fn send_rpc_request(
 fn fingerprint_from_identity(identity: &[u8]) -> String {
     use pqpgp::crypto::PublicKey;
     let fingerprint = PublicKey::fingerprint_from_mldsa87_bytes(identity);
-    hex::encode(&fingerprint[..8]) // First 16 hex chars
+    hex::encode(fingerprint) // Full 128 hex chars
 }
 
 /// Gets effective forum name/description after applying edits.
@@ -1222,11 +1222,14 @@ pub async fn board_view_page(
         .take(limit)
         .map(|summary| {
             let body_preview: String = summary.thread.body().chars().take(100).collect();
+            let author_fp = fingerprint_from_identity(summary.thread.author_identity());
+            let author_short = author_fp.chars().take(16).collect();
             ThreadDisplayInfo {
                 hash: summary.thread.hash().to_hex(),
                 title: summary.thread.title().to_string(),
                 body_preview,
-                author_short: fingerprint_from_identity(summary.thread.author_identity()),
+                author_short,
+                author_fingerprint: author_fp,
                 post_count: summary.post_count,
                 created_at_display: format_timestamp(summary.thread.created_at()),
             }
@@ -1510,12 +1513,17 @@ pub async fn thread_view_page(
     let post_displays: Vec<PostDisplayInfo> = filtered_posts
         .into_iter()
         .take(limit)
-        .map(|p| PostDisplayInfo {
-            hash: p.post.hash().to_hex(),
-            body: p.post.body().to_string(),
-            author_short: fingerprint_from_identity(p.post.author_identity()),
-            quote_body: p.quote_preview,
-            created_at_display: format_timestamp(p.post.created_at()),
+        .map(|p| {
+            let author_fp = fingerprint_from_identity(p.post.author_identity());
+            let author_short = author_fp.chars().take(16).collect();
+            PostDisplayInfo {
+                hash: p.post.hash().to_hex(),
+                body: p.post.body().to_string(),
+                author_short,
+                author_fingerprint: author_fp,
+                quote_body: p.quote_preview,
+                created_at_display: format_timestamp(p.post.created_at()),
+            }
         })
         .collect();
 
@@ -1564,6 +1572,8 @@ pub async fn thread_view_page(
     let prev_cursor = pagination.prev.clone();
     let current_cursor = pagination.cursor.clone();
 
+    let thread_author_fp = fingerprint_from_identity(thread.author_identity());
+    let thread_author_short = thread_author_fp.chars().take(16).collect();
     let template = ThreadViewTemplate {
         active_page: "forum".to_string(),
         csrf_token,
@@ -1574,7 +1584,8 @@ pub async fn thread_view_page(
         thread_hash: thread_hash.clone(),
         thread_title: thread.title().to_string(),
         thread_body: thread.body().to_string(),
-        thread_author_short: fingerprint_from_identity(thread.author_identity()),
+        thread_author_short,
+        thread_author_fingerprint: thread_author_fp,
         thread_created_at_display: format_timestamp(thread.created_at()),
         posts: post_displays,
         signing_keys,
@@ -5061,4 +5072,182 @@ pub async fn recompute_heads_handler(
         )
             .into_response(),
     }
+}
+
+// =============================================================================
+// User Profile
+// =============================================================================
+
+/// Query parameters for user profile view with dual pagination.
+#[derive(Debug, Deserialize)]
+pub struct ProfilePaginationQuery {
+    /// Cursor for threads page.
+    pub threads_cursor: Option<String>,
+    pub threads_prev: Option<String>,
+    /// Cursor for posts page.
+    pub posts_cursor: Option<String>,
+    pub posts_prev: Option<String>,
+    /// Optional page size override.
+    pub limit: Option<usize>,
+}
+
+impl ProfilePaginationQuery {
+    /// Returns the limit clamped to a reasonable range.
+    pub fn get_limit(&self) -> usize {
+        self.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100)
+    }
+
+    /// Decodes the threads cursor if present.
+    pub fn get_threads_cursor(&self) -> Option<Cursor> {
+        self.threads_cursor.as_ref().and_then(|s| Cursor::decode(s))
+    }
+
+    /// Decodes the posts cursor if present.
+    pub fn get_posts_cursor(&self) -> Option<Cursor> {
+        self.posts_cursor.as_ref().and_then(|s| Cursor::decode(s))
+    }
+}
+
+/// User profile page handler - shows a user's threads and posts in a forum.
+pub async fn user_profile_page(
+    State(app_state): State<AppState>,
+    session: Session,
+    Path((forum_hash_str, fingerprint)): Path<(String, String)>,
+    Query(query): Query<ProfilePaginationQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let csrf_token = get_csrf_token(&session, &app_state.csrf_store)
+        .await
+        .unwrap_or_default();
+
+    // Validate fingerprint format (128 hex chars)
+    if fingerprint.len() != 128 || !fingerprint.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(Html(
+            "<h1>Invalid user fingerprint</h1><p>Fingerprint must be 128 hexadecimal characters.</p>"
+                .to_string(),
+        ));
+    }
+
+    // Parse forum hash
+    let forum_hash = match ContentHash::from_hex(&forum_hash_str) {
+        Ok(h) => h,
+        Err(_) => {
+            return Ok(Html("<h1>Invalid forum hash</h1>".to_string()));
+        }
+    };
+
+    // Get forum name for display
+    let (forum_name, _forum_description) = get_effective_forum_info(
+        &app_state.forum_persistence,
+        &forum_hash,
+        "Unknown Forum",
+        "",
+    );
+
+    let limit = query.get_limit();
+
+    // Get paginated threads by author
+    let threads_cursor = query.get_threads_cursor();
+    let threads_result = app_state
+        .forum_persistence
+        .get_author_threads_paginated(
+            &forum_hash,
+            &fingerprint,
+            threads_cursor.as_ref(),
+            limit + 1,
+        )
+        .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
+            items: Vec::new(),
+            next_cursor: None,
+            total_count: None,
+        });
+
+    let threads_has_more = threads_result.items.len() > limit;
+    let fingerprint_short: String = fingerprint.chars().take(16).collect();
+    let threads: Vec<ThreadDisplayInfo> = threads_result
+        .items
+        .iter()
+        .take(limit)
+        .map(|summary| {
+            let body_preview: String = summary.thread.body().chars().take(100).collect();
+            ThreadDisplayInfo {
+                hash: summary.thread.hash().to_hex(),
+                title: summary.thread.title().to_string(),
+                body_preview: if summary.thread.body().len() > 100 {
+                    body_preview + "..."
+                } else {
+                    body_preview
+                },
+                author_short: fingerprint_short.clone(),
+                author_fingerprint: fingerprint.clone(),
+                post_count: summary.post_count,
+                created_at_display: format_timestamp(summary.thread.created_at()),
+            }
+        })
+        .collect();
+
+    let threads_next_cursor = if threads_has_more {
+        threads_result.next_cursor.as_ref().map(|c| c.encode())
+    } else {
+        None
+    };
+
+    // Get paginated posts by author
+    let posts_cursor = query.get_posts_cursor();
+    let posts_result = app_state
+        .forum_persistence
+        .get_author_posts_paginated(&forum_hash, &fingerprint, posts_cursor.as_ref(), limit + 1)
+        .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
+            items: Vec::new(),
+            next_cursor: None,
+            total_count: None,
+        });
+
+    let posts_has_more = posts_result.items.len() > limit;
+    let posts: Vec<PostDisplayInfo> = posts_result
+        .items
+        .iter()
+        .take(limit)
+        .map(|summary| PostDisplayInfo {
+            hash: summary.post.hash().to_hex(),
+            body: summary.post.body().to_string(),
+            author_short: fingerprint_short.clone(),
+            author_fingerprint: fingerprint.clone(),
+            quote_body: summary.quote_preview.clone(),
+            created_at_display: format_timestamp(summary.post.created_at()),
+        })
+        .collect();
+
+    let posts_next_cursor = if posts_has_more {
+        posts_result.next_cursor.as_ref().map(|c| c.encode())
+    } else {
+        None
+    };
+
+    let template = UserProfileTemplate {
+        active_page: "forum".to_string(),
+        csrf_token,
+        forum_hash: forum_hash_str,
+        forum_name,
+        user_fingerprint: fingerprint,
+        threads,
+        posts,
+        result: None,
+        error: None,
+        has_result: false,
+        has_error: false,
+        threads_prev_cursor: query.threads_prev.clone(),
+        threads_next_cursor,
+        threads_current_cursor: query.threads_cursor.clone(),
+        threads_has_more,
+        posts_prev_cursor: query.posts_prev.clone(),
+        posts_next_cursor,
+        posts_current_cursor: query.posts_cursor.clone(),
+        posts_has_more,
+    };
+
+    Ok(Html(
+        template
+            .render()
+            .unwrap_or_else(|e| format!("Template error: {}", e)),
+    ))
 }

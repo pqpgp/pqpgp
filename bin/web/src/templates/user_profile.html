@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}User {{ user_fingerprint }} - PQPGP Forums{% endblock %}
+
+{% block content %}
+<p><a href="/forum/{{ forum_hash }}" class="btn">&larr; Back to {{ forum_name }}</a></p>
+
+<div class="card">
+    <h2>User Profile</h2>
+    <p>Viewing activity for user: <span class="key-id">{{ user_fingerprint }}</span></p>
+    <p style="color: var(--text-muted); font-size: 0.9em;">
+        In forum: <strong>{{ forum_name }}</strong>
+    </p>
+
+    {% if has_error %}
+    <div class="alert alert-error">{{ error.as_ref().unwrap() }}</div>
+    {% endif %}
+
+    {% if has_result %}
+    <div class="alert alert-success">{{ result.as_ref().unwrap() }}</div>
+    {% endif %}
+
+    <!-- Threads Section -->
+    <h3>Threads Started</h3>
+    {% if threads.is_empty() %}
+    <p style="color: var(--text-muted); font-style: italic;">This user hasn't started any threads yet.</p>
+    {% else %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Thread Title</th>
+                <th>Preview</th>
+                <th>Replies</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for thread in threads %}
+            <tr>
+                <td><strong>{{ thread.title }}</strong></td>
+                <td style="color: var(--text-muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ thread.body_preview }}</td>
+                <td>{{ thread.post_count }}</td>
+                <td>{{ thread.created_at_display }}</td>
+                <td>
+                    <a href="/forum/{{ forum_hash }}/thread/{{ thread.hash }}" class="btn btn-small">View Thread</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Threads Pagination -->
+    <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ threads.len() }} threads</span>
+        <div>
+            {% if let Some(prev) = threads_prev_cursor %}
+            <a href="/forum/{{ forum_hash }}/user/{{ user_fingerprint }}?threads_cursor={{ prev }}&posts_cursor={{ posts_current_cursor.as_deref().unwrap_or_default() }}" class="btn btn-small">&larr; Previous Threads</a>
+            {% else %}
+            {% if threads_current_cursor.is_some() %}
+            <a href="/forum/{{ forum_hash }}/user/{{ user_fingerprint }}?posts_cursor={{ posts_current_cursor.as_deref().unwrap_or_default() }}" class="btn btn-small">&larr; Previous Threads</a>
+            {% endif %}
+            {% endif %}
+            {% if threads_has_more %}
+            {% if let Some(cursor) = threads_next_cursor %}
+            <a href="/forum/{{ forum_hash }}/user/{{ user_fingerprint }}?threads_cursor={{ cursor }}&threads_prev={{ threads_current_cursor.as_deref().unwrap_or_default() }}&posts_cursor={{ posts_current_cursor.as_deref().unwrap_or_default() }}" class="btn btn-small">Next Threads &rarr;</a>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Posts Section -->
+    <h3 style="margin-top: 2em;">Replies</h3>
+    {% if posts.is_empty() %}
+    <p style="color: var(--text-muted); font-style: italic;">This user hasn't posted any replies yet.</p>
+    {% else %}
+    {% for post in posts %}
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 15px 0; border: 1px solid var(--border-light);">
+        {% if post.quote_body.is_some() %}
+        <div style="background: #f5f5f5; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; border-left: 3px solid #718096; color: var(--text-dark); font-size: 0.9em;">
+            <em>Quoting:</em><br>
+            <div style="white-space: pre-wrap;">{{ post.quote_body.as_ref().unwrap() }}</div>
+        </div>
+        {% endif %}
+        <div style="white-space: pre-wrap;">{{ post.body }}</div>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.85em;">
+            {{ post.created_at_display }}
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Posts Pagination -->
+    <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ posts.len() }} posts</span>
+        <div>
+            {% if let Some(prev) = posts_prev_cursor %}
+            <a href="/forum/{{ forum_hash }}/user/{{ user_fingerprint }}?threads_cursor={{ threads_current_cursor.as_deref().unwrap_or_default() }}&posts_cursor={{ prev }}" class="btn btn-small">&larr; Previous Posts</a>
+            {% else %}
+            {% if posts_current_cursor.is_some() %}
+            <a href="/forum/{{ forum_hash }}/user/{{ user_fingerprint }}?threads_cursor={{ threads_current_cursor.as_deref().unwrap_or_default() }}" class="btn btn-small">&larr; Previous Posts</a>
+            {% endif %}
+            {% endif %}
+            {% if posts_has_more %}
+            {% if let Some(cursor) = posts_next_cursor %}
+            <a href="/forum/{{ forum_hash }}/user/{{ user_fingerprint }}?threads_cursor={{ threads_current_cursor.as_deref().unwrap_or_default() }}&posts_cursor={{ cursor }}&posts_prev={{ posts_current_cursor.as_deref().unwrap_or_default() }}" class="btn btn-small">Next Posts &rarr;</a>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<p><a href="/forum/{{ forum_hash }}" class="btn">&larr; Back to {{ forum_name }}</a></p>
+{% endblock %}

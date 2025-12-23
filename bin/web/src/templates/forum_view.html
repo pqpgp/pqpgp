@@ -11,7 +11,7 @@
 <div class="card">
     <h2>{{ forum_name }}</h2>
     <p>{{ forum_description }}</p>
-    <p style="color: #718096; font-size: 0.9em;">
+    <p style="color: var(--text-muted); font-size: 0.9em;">
         Forum ID: <span class="key-id">{{ forum_hash_short }}</span>
         &nbsp;|&nbsp; Created: {{ created_at_display }}
     </p>
@@ -26,7 +26,7 @@
 
     <h3>Moderators</h3>
     {% if moderators.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No moderators assigned yet.</p>
+    <p style="color: var(--text-muted); font-style: italic;">No moderators assigned yet.</p>
     {% else %}
     <ul style="margin: 0.5em 0; padding-left: 1.5em;">
         {% for moderator in moderators %}
@@ -44,7 +44,7 @@
 
     <h3>Boards</h3>
     {% if boards.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No boards yet. Moderators can create boards below.</p>
+    <p style="color: var(--text-muted); font-style: italic;">No boards yet. Moderators can create boards below.</p>
     {% else %}
     <table class="table">
         <thead>
@@ -72,7 +72,7 @@
     </table>
 
     <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #718096; font-size: 0.9em;">Showing {{ boards.len() }} of {{ total_boards }} boards</span>
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ boards.len() }} of {{ total_boards }} boards</span>
         <div>
             {% if let Some(prev) = prev_cursor %}
             <a href="/forum/{{ forum_hash }}?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>
@@ -94,7 +94,7 @@
 {% if is_moderator %}
 <div class="card">
     <h2>Create New Board</h2>
-    <p style="color: #718096;">As a moderator, you can create boards in this forum.</p>
+    <p style="color: var(--text-muted);">As a moderator, you can create boards in this forum.</p>
     <form method="post" action="/forum/{{ forum_hash }}/board/create">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -134,7 +134,7 @@
 {% if is_owner %}
 <div class="card">
     <h2>Edit Forum</h2>
-    <p style="color: #718096;">As the forum owner, you can edit the forum name and description.</p>
+    <p style="color: var(--text-muted);">As the forum owner, you can edit the forum name and description.</p>
     <form method="post" action="/forum/{{ forum_hash }}/edit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -172,7 +172,7 @@
 
 <div class="card">
     <h2>Manage Moderators</h2>
-    <p style="color: #718096;">As the forum owner, you can add or remove moderators.</p>
+    <p style="color: var(--text-muted);">As the forum owner, you can add or remove moderators.</p>
 
     <h3>Add Moderator</h3>
     <form method="post" action="/forum/{{ forum_hash }}/moderator/add">
@@ -250,7 +250,7 @@
 
 <div class="card">
     <h2>Remove Forum</h2>
-    <p style="color: #718096;">Remove this forum from your local storage. The forum will still exist on the relay - you can re-join it anytime using the forum hash.</p>
+    <p style="color: var(--text-muted);">Remove this forum from your local storage. The forum will still exist on the relay - you can re-join it anytime using the forum hash.</p>
     <form method="post" action="/forum/{{ forum_hash }}/remove" onsubmit="return confirm('Are you sure you want to remove this forum from your local storage?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="_confirm" value="yes">

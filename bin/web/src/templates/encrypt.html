@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="card">
-    <h2>🔒 Encrypt Message</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Encrypt Message</h2>
     <p>Encrypt a message using post-quantum cryptography. Optionally sign the message first for authentication. The message will be secured with ML-KEM-1024 key encapsulation and AES-256-GCM symmetric encryption.</p>
     
     {% if has_error %}
@@ -17,7 +17,7 @@
         <div class="alert alert-error">
             <p><strong>No encryption keys available.</strong></p>
             <p>You need to generate or import ML-KEM-1024 keys before you can encrypt messages.</p>
-            <a href="/keys" class="btn">🔑 Manage Keys</a>
+            <a href="/keys" class="btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>Manage Keys</a>
         </div>
     {% else %}
         <form method="post" action="/encrypt">
@@ -30,7 +30,7 @@
                         <option value="{{ recipient.user_id }}">{{ recipient.user_id }} ({{ recipient.key_id }})</option>
                     {% endfor %}
                 </select>
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     Select the recipient whose public key will be used to encrypt the message.
                 </small>
             </div>
@@ -38,7 +38,7 @@
             <div class="form-group">
                 <label for="message">Message to Encrypt:</label>
                 <textarea name="message" id="message" placeholder="Enter your secret message here..." required autocomplete="off" spellcheck="false"></textarea>
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     This message will be encrypted using quantum-resistant algorithms and can only be decrypted by the recipient's private key.
                 </small>
             </div>
@@ -51,7 +51,7 @@
                         <option value="{{ signing_key.key_id }}">{{ signing_key.user_id }} ({{ signing_key.key_id }})</option>
                     {% endfor %}
                 </select>
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     Optional: Select a signing key to create a signed+encrypted message (recommended for authentication).
                 </small>
             </div>
@@ -59,31 +59,31 @@
             <div class="form-group">
                 <label for="password">Signing Key Password (if protected):</label>
                 <input type="password" name="password" id="password" placeholder="Enter password for encrypted signing key" autocomplete="current-password" spellcheck="false">
-                <small style="color: #718096; display: block; margin-top: 5px;">
+                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
                     Required only if your selected signing key is password-protected.
                 </small>
             </div>
             
-            <button type="submit" class="btn">🔒 Encrypt Message</button>
+            <button type="submit" class="btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Encrypt Message</button>
         </form>
     {% endif %}
 </div>
 
 {% if has_result %}
 <div class="card">
-    <h2>✅ Encryption Successful</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>Encryption Successful</h2>
     <p>Your message has been encrypted using post-quantum cryptography. If you selected a signing key, the message was signed first for authentication, then encrypted. Share the encrypted message below with the recipient.</p>
     
     <div class="form-group">
         <label for="encrypted_output">Encrypted Message (PGP Armored):</label>
         <div class="code-block">{{ result.as_ref().unwrap() }}</div>
-        <small style="color: #718096; display: block; margin-top: 10px;">
-            💡 This armored format can be safely transmitted via email, messaging, or stored in text files. Only the recipient's private key can decrypt this message.
+        <small style="color: var(--text-muted); display: block; margin-top: 10px;">
+            This armored format can be safely transmitted via email, messaging, or stored in text files. Only the recipient's private key can decrypt this message.
         </small>
     </div>
     
     <div style="margin-top: 20px; padding: 15px; background-color: #f0fff4; border: 1px solid #9ae6b4; border-radius: 8px;">
-        <h4 style="margin-top: 0; color: #22543d;">🛡️ Security Information</h4>
+        <h4 style="margin-top: 0; color: #22543d; display: flex; align-items: center;"><svg class="icon icon-lg" style="margin-right: 8px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>Security Information</h4>
         <ul style="margin-bottom: 0; color: #22543d;">
             <li>Message encrypted with <strong>ML-KEM-1024</strong> key encapsulation</li>
             <li>Keys and nonces derived using <strong>HKDF-SHA3-512</strong> for perfect forward secrecy</li>
@@ -98,24 +98,24 @@
 
 {% if !recipients.is_empty() && !has_result %}
 <div class="card">
-    <h2>💡 How Encryption Works</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg>How Encryption Works</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid var(--red-light);">
             <h4 style="margin-top: 0; color: #4a5568;">1. Key Encapsulation</h4>
             <p>ML-KEM-1024 algorithm generates a quantum-resistant shared secret using the recipient's public key.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #0284c7;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #0284c7;">
             <h4 style="margin-top: 0; color: #4a5568;">2. Key Derivation</h4>
             <p>HKDF-SHA3-512 securely derives AES-256 keys and deterministic nonces from the shared secret, preventing reuse.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">3. Symmetric Encryption</h4>
             <p>Your message is encrypted with AES-256-GCM using derived keys and cryptographically-bound metadata.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #ed8936;">
             <h4 style="margin-top: 0; color: #4a5568;">4. Secure Transport</h4>
             <p>The encrypted message and encapsulated key are combined into PGP armor format for safe transmission.</p>
         </div>

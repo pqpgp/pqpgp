@@ -15,7 +15,8 @@
     .contacts-panel {
         background: white;
         border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.08);
+        border: 1px solid var(--border-light);
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -23,12 +24,12 @@
 
     .contacts-header {
         padding: 20px;
-        border-bottom: 2px solid #e2e8f0;
+        border-bottom: 2px solid var(--border-light);
     }
 
     .contacts-header h3 {
         margin: 0 0 15px 0;
-        color: #2d3748;
+        color: var(--text-dark);
     }
 
     .contacts-list {
@@ -50,11 +51,11 @@
     }
 
     .contact-item:hover {
-        background-color: #f7fafc;
+        background-color: var(--bg-subtle);
     }
 
     .contact-item.active {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, var(--red-light) 0%, var(--red-dark) 100%);
         color: white;
     }
 
@@ -62,7 +63,7 @@
         width: 40px;
         height: 40px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, var(--red-light) 0%, var(--red-dark) 100%);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -101,8 +102,8 @@
         font-size: 10px;
         padding: 2px 6px;
         border-radius: 10px;
-        background-color: #c6f6d5;
-        color: #22543d;
+        background-color: #d4edda;
+        color: #155724;
     }
 
     .contact-item.active .session-badge {
@@ -113,7 +114,7 @@
     .delete-contact-btn {
         background: none;
         border: none;
-        color: #e53e3e;
+        color: var(--red-dark);
         cursor: pointer;
         padding: 4px 8px;
         font-size: 14px;
@@ -133,7 +134,8 @@
     .chat-panel {
         background: white;
         border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.08);
+        border: 1px solid var(--border-light);
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -141,7 +143,7 @@
 
     .chat-header {
         padding: 20px;
-        border-bottom: 2px solid #e2e8f0;
+        border-bottom: 2px solid var(--border-light);
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -149,7 +151,7 @@
 
     .chat-header h3 {
         margin: 0;
-        color: #2d3748;
+        color: var(--text-dark);
     }
 
     .messages-area {
@@ -159,7 +161,7 @@
         display: flex;
         flex-direction: column;
         gap: 15px;
-        background-color: #f7fafc;
+        background-color: var(--bg-subtle);
     }
 
     .message {
@@ -171,13 +173,13 @@
 
     .message.incoming {
         background-color: white;
-        border: 1px solid #e2e8f0;
+        border: 1px solid var(--border-light);
         align-self: flex-start;
         border-bottom-left-radius: 4px;
     }
 
     .message.outgoing {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, var(--red-light) 0%, var(--red-dark) 100%);
         color: white;
         align-self: flex-end;
         border-bottom-right-radius: 4px;
@@ -196,7 +198,7 @@
 
     .message-input-area {
         padding: 20px;
-        border-top: 2px solid #e2e8f0;
+        border-top: 2px solid var(--border-light);
         display: flex;
         gap: 10px;
     }
@@ -204,7 +206,7 @@
     .message-input-area input[type="text"] {
         flex: 1;
         padding: 12px 16px;
-        border: 2px solid #e2e8f0;
+        border: 2px solid var(--border-light);
         border-radius: 24px;
         font-size: 16px;
         transition: border-color 0.3s ease;
@@ -212,12 +214,12 @@
 
     .message-input-area input[type="text"]:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: var(--red-light);
     }
 
     .send-btn {
         padding: 12px 24px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, var(--red-light) 0%, var(--red-dark) 100%);
         color: white;
         border: none;
         border-radius: 24px;
@@ -228,7 +230,7 @@
 
     .send-btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        box-shadow: 0 4px 12px rgba(192, 57, 43, 0.3);
     }
 
     .send-btn:disabled {
@@ -243,7 +245,7 @@
         align-items: center;
         justify-content: center;
         height: 100%;
-        color: #718096;
+        color: var(--text-muted);
         text-align: center;
         padding: 40px;
     }
@@ -255,7 +257,7 @@
     }
 
     .identity-info {
-        background-color: #edf2f7;
+        background-color: #f5f5f5;
         padding: 10px 15px;
         border-radius: 8px;
         font-size: 12px;
@@ -266,15 +268,15 @@
 
     .new-contact-form {
         padding: 15px;
-        border-top: 1px solid #e2e8f0;
-        background-color: #f7fafc;
+        border-top: 1px solid var(--border-light);
+        background-color: var(--bg-subtle);
     }
 
     .new-contact-form input,
     .new-contact-form textarea {
         width: 100%;
         padding: 10px;
-        border: 2px solid #e2e8f0;
+        border: 2px solid var(--border-light);
         border-radius: 8px;
         font-size: 14px;
         margin-bottom: 10px;
@@ -284,7 +286,7 @@
     .new-contact-form input:focus,
     .new-contact-form textarea:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: var(--red-light);
     }
 
     .new-contact-form textarea {
@@ -299,13 +301,13 @@
         min-height: 80px;
         margin-top: 8px;
         padding: 10px;
-        border: 2px solid #e2e8f0;
+        border: 2px solid var(--border-light);
         border-radius: 8px;
         font-size: 11px;
         font-family: 'Courier New', monospace;
         resize: vertical;
         box-sizing: border-box;
-        background-color: #f7fafc;
+        background-color: var(--bg-subtle);
     }
 
     .encryption-badge {
@@ -313,8 +315,8 @@
         align-items: center;
         gap: 5px;
         font-size: 12px;
-        color: #22543d;
-        background-color: #c6f6d5;
+        color: #155724;
+        background-color: #d4edda;
         padding: 4px 10px;
         border-radius: 12px;
     }
@@ -352,7 +354,7 @@
             {% match our_prekey_bundle %}
             {% when Some with (bundle) %}
             <details style="margin-top: 10px;">
-                <summary style="cursor: pointer; font-size: 12px; color: #667eea;">Share your prekey bundle</summary>
+                <summary style="cursor: pointer; font-size: 12px; color: var(--red-light);">Share your prekey bundle</summary>
                 <textarea id="prekey-bundle" class="prekey-textarea" readonly>{{ bundle }}</textarea>
                 <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('prekey-bundle').value)"
                     class="btn btn-small" style="width: 100%; margin-top: 5px;">Copy Prekey Bundle</button>
@@ -368,10 +370,10 @@
             <form method="POST" action="/chat/generate-identity" style="margin-top: 10px;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="password" name="password" placeholder="Password to encrypt identity" required
-                    style="width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
+                    style="width: 100%; padding: 10px; border: 2px solid var(--border-light); border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
                 <button type="submit" class="btn btn-small" style="width: 100%;">Generate Identity</button>
             </form>
-            <p style="font-size: 11px; color: #718096; margin-top: 8px; text-align: center;">
+            <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px; text-align: center;">
                 Generate an identity to start secure chats
             </p>
             {% else %}
@@ -380,21 +382,21 @@
                 <form method="POST" action="/chat/unlock-identity">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <select name="fingerprint" required
-                        style="width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box; font-family: 'Courier New', monospace; font-size: 11px;">
+                        style="width: 100%; padding: 10px; border: 2px solid var(--border-light); border-radius: 8px; margin-bottom: 10px; box-sizing: border-box; font-family: 'Courier New', monospace; font-size: 11px;">
                         {% for fp in saved_identities %}
                         <option value="{{ fp }}">{{ fp }}</option>
                         {% endfor %}
                     </select>
                     <input type="password" name="password" placeholder="Password" required
-                        style="width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
+                        style="width: 100%; padding: 10px; border: 2px solid var(--border-light); border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
                     <button type="submit" class="btn btn-small" style="width: 100%;">Unlock</button>
                 </form>
                 <details style="margin-top: 15px;">
-                    <summary style="cursor: pointer; font-size: 12px; color: #667eea;">Create new identity</summary>
+                    <summary style="cursor: pointer; font-size: 12px; color: var(--red-light);">Create new identity</summary>
                     <form method="POST" action="/chat/generate-identity" style="margin-top: 10px;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="password" name="password" placeholder="Password to encrypt identity" required
-                            style="width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
+                            style="width: 100%; padding: 10px; border: 2px solid var(--border-light); border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
                         <button type="submit" class="btn btn-small" style="width: 100%;">Generate New Identity</button>
                     </form>
                 </details>
@@ -407,7 +409,7 @@
         {% when Some with (_) %}
         <div class="contacts-list">
             {% if contacts.is_empty() %}
-            <div style="text-align: center; padding: 20px; color: #718096;">
+            <div style="text-align: center; padding: 20px; color: var(--text-muted);">
                 <p>No contacts yet</p>
                 <p style="font-size: 12px;">Add a contact to start chatting</p>
             </div>
@@ -453,7 +455,7 @@
             <div>
                 <h3>{% match selected_contact_name %}{% when Some with (name) %}{{ name }}{% when None %}Unknown{% endmatch %}</h3>
                 <span class="encryption-badge">
-                    <span>&#128274;</span> Post-Quantum Encrypted
+                    <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg> Post-Quantum Encrypted
                 </span>
             </div>
             <form method="POST" action="/chat/fetch-messages">
@@ -466,7 +468,7 @@
         <div class="messages-area" id="messages">
             {% if messages.is_empty() %}
             <div class="no-contact-selected">
-                <div class="icon">&#128172;</div>
+                <svg style="width: 64px; height: 64px; opacity: 0.5; margin-bottom: 20px;" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
                 <p>No messages yet</p>
                 <p style="font-size: 14px;">Send a message to start the conversation</p>
             </div>
@@ -490,7 +492,7 @@
         </div>
         {% when None %}
         <div class="no-contact-selected">
-            <div class="icon">&#128172;</div>
+            <svg style="width: 64px; height: 64px; opacity: 0.5; margin-bottom: 20px;" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
             <h3>Select a contact</h3>
             <p>Choose a contact from the list to start a secure conversation</p>
             <p style="font-size: 14px; margin-top: 20px;">

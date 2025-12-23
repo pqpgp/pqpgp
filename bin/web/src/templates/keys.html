@@ -10,7 +10,7 @@
 {% endif %}
 
 <div class="card">
-  <h2>🔑 Key Management</h2>
+  <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>Key Management</h2>
   <p>
     Manage your post-quantum cryptographic keys. Generate new key pairs for
     encryption (ML-KEM-1024) or digital signatures (ML-DSA-87).
@@ -60,9 +60,9 @@
           onchange="togglePasswordFields()"
           style="margin-right: 8px; width: auto"
         />
-        🔒 Protect private key with password
+        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Protect private key with password
       </label>
-      <small style="color: #718096; display: block; margin-top: 5px">
+      <small style="color: var(--text-muted); display: block; margin-top: 5px">
         Recommended: Encrypts your private key using Argon2id + AES-256-GCM for
         maximum security.
       </small>
@@ -79,7 +79,7 @@
           autocomplete="new-password"
           spellcheck="false"
         />
-        <small style="color: #718096; display: block; margin-top: 5px">
+        <small style="color: var(--text-muted); display: block; margin-top: 5px">
           Use a strong, unique password. This will be required for signing and
           decryption operations.
         </small>
@@ -98,7 +98,7 @@
       </div>
     </div>
 
-    <button type="submit" class="btn">🔑 Generate New Key Pair</button>
+    <button type="submit" class="btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>Generate New Key Pair</button>
 
     <script>
       function togglePasswordFields() {
@@ -124,7 +124,7 @@
 </div>
 
 <div class="card">
-  <h2>📥 Import Public Key</h2>
+  <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Import Public Key</h2>
   <p>
     Import someone else's public key to encrypt messages for them or verify
     their signatures. You can either paste the key text or upload a key file.
@@ -142,7 +142,7 @@
         autocomplete="off"
         spellcheck="false"
       ></textarea>
-      <small style="color: #718096; display: block; margin-top: 5px">
+      <small style="color: var(--text-muted); display: block; margin-top: 5px">
         Paste the complete PGP armored public key including the -----BEGIN PGP
         PUBLIC KEY BLOCK----- and -----END PGP PUBLIC KEY BLOCK----- lines.
       </small>
@@ -152,7 +152,7 @@
       style="
         text-align: center;
         margin: 20px 0;
-        color: #718096;
+        color: var(--text-muted);
         font-weight: bold;
       "
     >
@@ -171,16 +171,16 @@
           padding: 10px;
           border: 2px dashed #cbd5e0;
           border-radius: 8px;
-          background-color: #f7fafc;
+          background-color: var(--bg-subtle);
         "
       />
-      <small style="color: #718096; display: block; margin-top: 5px">
+      <small style="color: var(--text-muted); display: block; margin-top: 5px">
         Select a file containing the public key. Common formats: .asc (armored),
         .gpg, .pgp, or .txt files.
       </small>
     </div>
 
-    <button type="submit" class="btn">📥 Import Public Key</button>
+    <button type="submit" class="btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Import Public Key</button>
   </form>
 
   <div
@@ -192,7 +192,7 @@
       border-radius: 8px;
     "
   >
-    <h4 style="margin-top: 0; color: #22543d">💡 Import Options</h4>
+    <h4 style="margin-top: 0; color: #22543d; display: flex; align-items: center;"><svg class="icon icon-lg" style="margin-right: 8px;" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg>Import Options</h4>
     <ul style="margin-bottom: 0; color: #22543d">
       <li>
         Use either the text box OR file upload (both are checked, text takes
@@ -209,7 +209,7 @@
 </div>
 
 <div class="card">
-  <h2>📋 Your Keys</h2>
+  <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>Your Keys</h2>
   {% if keys.is_empty() %}
   <div class="alert alert-info">
     <p>
@@ -239,13 +239,13 @@
           <span
             class="status-badge"
             style="background-color: #bee3f8; color: #2a4365"
-            >🔒 {{ key.algorithm }} <small>(Encryption)</small></span
+            ><svg class="icon" style="margin-right: 4px;" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>{{ key.algorithm }} <small>(Encryption)</small></span
           >
           {% else %}
           <span
             class="status-badge"
             style="background-color: #e6fffa; color: #234e52"
-            >✍️ {{ key.algorithm }} <small>(Signatures)</small></span
+            ><svg class="icon" style="margin-right: 4px;" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>{{ key.algorithm }} <small>(Signatures)</small></span
           >
           {% endif %}
         </td>
@@ -256,11 +256,11 @@
         </td>
         <td>
           {% if key.has_private_key %} {% if key.is_password_protected %}
-          <span class="status-badge status-success">🔒 Password Protected</span>
+          <span class="status-badge status-success"><svg class="icon" style="margin-right: 4px;" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Protected</span>
           {% else %}
-          <span class="status-badge status-success">✅ Available</span>
+          <span class="status-badge status-success"><svg class="icon" style="margin-right: 4px;" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>Available</span>
           {% endif %} {% else %}
-          <span class="status-badge status-error">❌ Not Available</span>
+          <span class="status-badge status-error"><svg class="icon" style="margin-right: 4px;" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>Not Available</span>
           {% endif %}
         </td>
         <td>
@@ -274,18 +274,18 @@
                 text-decoration: none;
               "
             >
-              📥 Export Public Key
+              <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/></svg>Export
             </a>
             <a
               href="/keys/view/{{ key.key_id }}"
               class="btn btn-small"
               style="
-                background-color: #667eea;
+                background-color: var(--red-light);
                 color: white;
                 text-decoration: none;
               "
             >
-              👁️ View Public Key
+              <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>View
             </a>
             <form
               method="post"
@@ -298,7 +298,7 @@
                 class="btn btn-danger btn-small"
                 onclick="return confirm('Are you sure you want to delete this key? This action cannot be undone.')"
               >
-                🗑️ Delete
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Delete
               </button>
             </form>
           </div>
@@ -312,11 +312,11 @@
     style="
       margin-top: 20px;
       padding: 15px;
-      background-color: #f7fafc;
+      background-color: var(--bg-subtle);
       border-radius: 8px;
     "
   >
-    <h4 style="margin-top: 0; color: #4a5568">💡 Key Usage Guide</h4>
+    <h4 style="margin-top: 0; color: #4a5568; display: flex; align-items: center;"><svg class="icon icon-lg" style="margin-right: 8px;" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg>Key Usage Guide</h4>
     <ul style="margin-bottom: 0">
       <li>
         <strong>ML-KEM-1024</strong> keys provide

@@ -84,6 +84,10 @@ const CF_IDX_HIDDEN_BOARDS: &str = "idx_hidden_boards"; // forum_hash + board_ha
 const CF_IDX_FORUM_MODS: &str = "idx_forum_mods"; // forum_hash + fingerprint -> role byte (1=owner, 2=mod)
 const CF_IDX_BOARD_MODS: &str = "idx_board_mods"; // forum_hash + board_hash + fingerprint -> () (presence = mod)
 
+// Author-based indexes for user profile queries
+const CF_IDX_AUTHOR_THREADS: &str = "idx_author_threads"; // forum_hash + fingerprint + inverted_ts + thread_hash -> ()
+const CF_IDX_AUTHOR_POSTS: &str = "idx_author_posts"; // forum_hash + fingerprint + timestamp + post_hash -> ()
+
 /// Key for global forum count in the meta column family.
 const META_FORUM_COUNT: &[u8] = b"forum_count";
 
@@ -262,6 +266,9 @@ impl ForumStorage {
             CF_IDX_HIDDEN_BOARDS,
             CF_IDX_FORUM_MODS,
             CF_IDX_BOARD_MODS,
+            // Author-based indexes for user profiles
+            CF_IDX_AUTHOR_THREADS,
+            CF_IDX_AUTHOR_POSTS,
         ];
 
         let db = RocksDbHandle::open(&db_path, &config, column_families)?;
@@ -574,6 +581,59 @@ impl ForumStorage {
         key
     }
 
+    /// Creates an index key for author thread lookup: forum_hash + fingerprint + inverted_timestamp + thread_hash.
+    ///
+    /// The fingerprint is 128 hex characters (64 bytes as string).
+    /// The inverted timestamp ensures newest threads come first in iteration order.
+    fn author_thread_index_key(
+        forum_hash: &ContentHash,
+        fingerprint: &str,
+        timestamp: u64,
+        thread_hash: &ContentHash,
+    ) -> Vec<u8> {
+        // forum_hash (64) + fingerprint (128) + inverted_ts (8) + thread_hash (64) = 264 bytes
+        let mut key = Vec::with_capacity(264);
+        key.extend_from_slice(forum_hash.as_bytes());
+        key.extend_from_slice(fingerprint.as_bytes()); // 128 bytes as ASCII
+        key.extend_from_slice(&Self::invert_timestamp(timestamp));
+        key.extend_from_slice(thread_hash.as_bytes());
+        key
+    }
+
+    /// Creates a prefix key for author threads: forum_hash + fingerprint (192 bytes).
+    fn author_thread_index_prefix(forum_hash: &ContentHash, fingerprint: &str) -> Vec<u8> {
+        let mut key = Vec::with_capacity(192);
+        key.extend_from_slice(forum_hash.as_bytes());
+        key.extend_from_slice(fingerprint.as_bytes());
+        key
+    }
+
+    /// Creates an index key for author post lookup: forum_hash + fingerprint + timestamp + post_hash.
+    ///
+    /// Uses NON-inverted timestamps so oldest posts come first (chronological order).
+    fn author_post_index_key(
+        forum_hash: &ContentHash,
+        fingerprint: &str,
+        timestamp: u64,
+        post_hash: &ContentHash,
+    ) -> Vec<u8> {
+        // forum_hash (64) + fingerprint (128) + timestamp (8) + post_hash (64) = 264 bytes
+        let mut key = Vec::with_capacity(264);
+        key.extend_from_slice(forum_hash.as_bytes());
+        key.extend_from_slice(fingerprint.as_bytes()); // 128 bytes as ASCII
+        key.extend_from_slice(&timestamp.to_be_bytes()); // NOT inverted - oldest first
+        key.extend_from_slice(post_hash.as_bytes());
+        key
+    }
+
+    /// Creates a prefix key for author posts: forum_hash + fingerprint (192 bytes).
+    fn author_post_index_prefix(forum_hash: &ContentHash, fingerprint: &str) -> Vec<u8> {
+        let mut key = Vec::with_capacity(192);
+        key.extend_from_slice(forum_hash.as_bytes());
+        key.extend_from_slice(fingerprint.as_bytes());
+        key
+    }
+
     // ========================================================================
     // Core Node Storage
     // ========================================================================
@@ -641,6 +701,17 @@ impl ForumStorage {
 
                 // Update thread count cache for the board
                 self.increment_thread_count(forum_hash, thread.board_hash())?;
+
+                // Author index: forum + fingerprint + inverted_timestamp + thread_hash
+                let author_fp = fingerprint_from_identity(thread.author_identity());
+                let author_idx_key = Self::author_thread_index_key(
+                    forum_hash,
+                    &author_fp,
+                    thread.created_at(),
+                    thread.hash(),
+                );
+                self.db
+                    .put_raw(CF_IDX_AUTHOR_THREADS, &author_idx_key, &[])?;
             }
             DagNode::Post(post) => {
                 // Index: forum + thread + inverted_timestamp + post_hash (sorted by time desc)
@@ -656,6 +727,16 @@ impl ForumStorage {
 
                 // Update post count cache
                 self.increment_post_count(forum_hash, post.thread_hash())?;
+
+                // Author index: forum + fingerprint + timestamp + post_hash
+                let author_fp = fingerprint_from_identity(post.author_identity());
+                let author_idx_key = Self::author_post_index_key(
+                    forum_hash,
+                    &author_fp,
+                    post.created_at(),
+                    post.hash(),
+                );
+                self.db.put_raw(CF_IDX_AUTHOR_POSTS, &author_idx_key, &[])?;
             }
             DagNode::ModAction(action) => {
                 // Index: forum -> mod action
@@ -1453,6 +1534,11 @@ impl ForumStorage {
             .prefix_delete(CF_IDX_FORUM_MODS, forum_hash.as_bytes())?;
         self.db
             .prefix_delete(CF_IDX_BOARD_MODS, forum_hash.as_bytes())?;
+        // Delete author indexes
+        self.db
+            .prefix_delete(CF_IDX_AUTHOR_THREADS, forum_hash.as_bytes())?;
+        self.db
+            .prefix_delete(CF_IDX_AUTHOR_POSTS, forum_hash.as_bytes())?;
         // Delete board count for this forum
         self.db.delete(CF_IDX_BOARD_COUNTS, forum_hash.as_bytes())?;
 
@@ -1536,6 +1622,11 @@ impl ForumStorage {
             .prefix_delete(CF_IDX_FORUM_MODS, forum_hash.as_bytes())?;
         self.db
             .prefix_delete(CF_IDX_BOARD_MODS, forum_hash.as_bytes())?;
+        // Clear author indexes for this forum
+        self.db
+            .prefix_delete(CF_IDX_AUTHOR_THREADS, forum_hash.as_bytes())?;
+        self.db
+            .prefix_delete(CF_IDX_AUTHOR_POSTS, forum_hash.as_bytes())?;
         // Clear board count for this forum
         self.db.delete(CF_IDX_BOARD_COUNTS, forum_hash.as_bytes())?;
 
@@ -1585,6 +1676,17 @@ impl ForumStorage {
                     self.db
                         .put_raw(CF_IDX_THREADS, &idx_key, thread.hash().as_bytes())?;
                     thread_count += 1;
+
+                    // Author index
+                    let author_fp = fingerprint_from_identity(thread.author_identity());
+                    let author_idx_key = Self::author_thread_index_key(
+                        forum_hash,
+                        &author_fp,
+                        thread.created_at(),
+                        thread.hash(),
+                    );
+                    self.db
+                        .put_raw(CF_IDX_AUTHOR_THREADS, &author_idx_key, &[])?;
                 }
                 DagNode::Post(post) => {
                     let idx_key = Self::post_index_key(
@@ -1596,6 +1698,16 @@ impl ForumStorage {
                     self.db
                         .put_raw(CF_IDX_POSTS, &idx_key, post.hash().as_bytes())?;
                     post_count += 1;
+
+                    // Author index
+                    let author_fp = fingerprint_from_identity(post.author_identity());
+                    let author_idx_key = Self::author_post_index_key(
+                        forum_hash,
+                        &author_fp,
+                        post.created_at(),
+                        post.hash(),
+                    );
+                    self.db.put_raw(CF_IDX_AUTHOR_POSTS, &author_idx_key, &[])?;
                 }
                 DagNode::ModAction(action) => {
                     let idx_key = Self::mod_action_index_key(forum_hash, action.hash());
@@ -2494,6 +2606,218 @@ impl ForumStorage {
         })
     }
 
+    /// Gets threads created by a specific author with cursor-based pagination.
+    ///
+    /// Threads are sorted by creation time (newest first).
+    /// Pass `None` for cursor to get the first page.
+    /// Hidden threads are filtered out.
+    pub fn get_author_threads_paginated(
+        &self,
+        forum_hash: &ContentHash,
+        author_fingerprint: &str,
+        cursor: Option<&Cursor>,
+        limit: usize,
+    ) -> Result<PaginatedResult<ThreadSummary>> {
+        let prefix = Self::author_thread_index_prefix(forum_hash, author_fingerprint);
+
+        // Build the seek key for iteration
+        // Index key format: forum_hash (64) + fingerprint (128) + inverted_timestamp (8) + thread_hash (64) = 264 bytes
+        let seek_key = if let Some(cursor) = cursor {
+            let mut key = Vec::with_capacity(264);
+            key.extend_from_slice(forum_hash.as_bytes());
+            key.extend_from_slice(author_fingerprint.as_bytes());
+            key.extend_from_slice(&Self::invert_timestamp(cursor.timestamp));
+            key.extend_from_slice(cursor.hash.as_bytes());
+            // Increment to skip cursor item
+            let mut key_bytes: [u8; 264] = key.try_into().unwrap();
+            for i in (0..264).rev() {
+                if key_bytes[i] < 255 {
+                    key_bytes[i] += 1;
+                    break;
+                }
+                key_bytes[i] = 0;
+            }
+            key_bytes.to_vec()
+        } else {
+            prefix.clone()
+        };
+
+        // Collect thread hashes, filtering hidden ones
+        let mut thread_data: Vec<(u64, ContentHash)> = Vec::with_capacity(limit + 1);
+        self.db
+            .seek_iterate(CF_IDX_AUTHOR_THREADS, &seek_key, &prefix, |key, _| {
+                // Key format: forum_hash (64) + fingerprint (128) + inverted_timestamp (8) + thread_hash (64)
+                if key.len() == 264 {
+                    let inverted_ts: [u8; 8] = key[192..200].try_into().unwrap();
+                    let timestamp = u64::MAX - u64::from_be_bytes(inverted_ts);
+                    let thread_hash = ContentHash::from_bytes(key[200..264].try_into().unwrap());
+
+                    // Filter out hidden threads
+                    if !self
+                        .is_thread_hidden(forum_hash, &thread_hash)
+                        .unwrap_or(false)
+                    {
+                        thread_data.push((timestamp, thread_hash));
+                    }
+                }
+                thread_data.len() <= limit
+            })?;
+
+        let has_more = thread_data.len() > limit;
+        let page_items: Vec<_> = thread_data.into_iter().take(limit).collect();
+
+        // Load the actual thread nodes with post counts
+        let mut summaries = Vec::with_capacity(page_items.len());
+        for (_, thread_hash) in &page_items {
+            if let Some(thread) = self.get_thread(forum_hash, thread_hash)? {
+                let post_count = self.get_post_count(forum_hash, thread_hash).unwrap_or(0);
+                summaries.push(ThreadSummary { thread, post_count });
+            }
+        }
+
+        let next_cursor = if has_more && !summaries.is_empty() {
+            let last = summaries.last().unwrap();
+            Some(Cursor::new(last.thread.created_at(), *last.thread.hash()))
+        } else {
+            None
+        };
+
+        debug!(
+            forum = %forum_hash.short(),
+            author = author_fingerprint,
+            returned = summaries.len(),
+            has_more = has_more,
+            "get_author_threads_paginated: returned threads page"
+        );
+
+        Ok(PaginatedResult {
+            items: summaries,
+            next_cursor,
+            total_count: None, // Not cached, would require iteration to count
+        })
+    }
+
+    /// Gets posts created by a specific author with cursor-based pagination.
+    ///
+    /// Posts are sorted by creation time (oldest first for chronological reading).
+    /// Pass `None` for cursor to get the first page.
+    /// Hidden posts are filtered out.
+    pub fn get_author_posts_paginated(
+        &self,
+        forum_hash: &ContentHash,
+        author_fingerprint: &str,
+        cursor: Option<&Cursor>,
+        limit: usize,
+    ) -> Result<PaginatedResult<PostSummary>> {
+        let prefix = Self::author_post_index_prefix(forum_hash, author_fingerprint);
+
+        // Build the seek key for iteration
+        // Index key format: forum_hash (64) + fingerprint (128) + timestamp (8) + post_hash (64) = 264 bytes
+        let seek_key = if let Some(cursor) = cursor {
+            let mut key = Vec::with_capacity(264);
+            key.extend_from_slice(forum_hash.as_bytes());
+            key.extend_from_slice(author_fingerprint.as_bytes());
+            key.extend_from_slice(&cursor.timestamp.to_be_bytes()); // Non-inverted for ascending
+            key.extend_from_slice(cursor.hash.as_bytes());
+            // Increment to skip cursor item
+            let mut key_bytes: [u8; 264] = key.try_into().unwrap();
+            for i in (0..264).rev() {
+                if key_bytes[i] < 255 {
+                    key_bytes[i] += 1;
+                    break;
+                }
+                key_bytes[i] = 0;
+            }
+            key_bytes.to_vec()
+        } else {
+            prefix.clone()
+        };
+
+        // Collect post hashes, filtering hidden ones
+        let mut post_hashes: Vec<ContentHash> = Vec::with_capacity(limit + 1);
+        self.db
+            .seek_iterate(CF_IDX_AUTHOR_POSTS, &seek_key, &prefix, |key, _| {
+                // Key format: forum_hash (64) + fingerprint (128) + timestamp (8) + post_hash (64)
+                if key.len() == 264 {
+                    let post_hash = ContentHash::from_bytes(key[200..264].try_into().unwrap());
+
+                    // Filter out hidden posts
+                    if !self.is_post_hidden(forum_hash, &post_hash).unwrap_or(false) {
+                        post_hashes.push(post_hash);
+                    }
+                }
+                post_hashes.len() <= limit
+            })?;
+
+        let has_more = post_hashes.len() > limit;
+        let page_hashes: Vec<_> = post_hashes.into_iter().take(limit).collect();
+
+        // Load the actual post nodes
+        let mut posts = Vec::with_capacity(page_hashes.len());
+        for post_hash in &page_hashes {
+            if let Some(post) = self.load_post(forum_hash, post_hash)? {
+                posts.push(post);
+            }
+        }
+
+        // Collect unique quote hashes from posts on this page
+        let quote_hashes: HashSet<ContentHash> = posts
+            .iter()
+            .filter_map(|p| p.quote_hash().copied())
+            .collect();
+
+        // Batch-load only the quoted posts
+        let mut quoted_posts: HashMap<ContentHash, Post> = HashMap::new();
+        for quote_hash in &quote_hashes {
+            if let Ok(Some(quoted_post)) = self.load_post(forum_hash, quote_hash) {
+                quoted_posts.insert(*quote_hash, quoted_post);
+            }
+        }
+
+        // Build PostSummary with resolved quote previews
+        let summaries: Vec<PostSummary> = posts
+            .into_iter()
+            .map(|post| {
+                let quote_preview = post.quote_hash().and_then(|qh| {
+                    quoted_posts.get(qh).map(|quoted| {
+                        let preview: String = quoted.body().chars().take(200).collect();
+                        if quoted.body().len() > 200 {
+                            preview + "..."
+                        } else {
+                            preview
+                        }
+                    })
+                });
+
+                PostSummary {
+                    post,
+                    quote_preview,
+                }
+            })
+            .collect();
+
+        let next_cursor = if has_more && !summaries.is_empty() {
+            let last_post = &summaries.last().unwrap().post;
+            Some(Cursor::new(last_post.created_at(), *last_post.hash()))
+        } else {
+            None
+        };
+
+        debug!(
+            forum = %forum_hash.short(),
+            author = author_fingerprint,
+            returned = summaries.len(),
+            has_more = has_more,
+            "get_author_posts_paginated: returned posts page"
+        );
+
+        Ok(PaginatedResult {
+            items: summaries,
+            next_cursor,
+            total_count: None, // Not cached, would require iteration to count
+        })
+    }
+
     /// Gets a specific board by hash.
     pub fn get_board(
         &self,
@@ -3226,7 +3550,7 @@ impl ForumStorage {
 fn fingerprint_from_identity(identity: &[u8]) -> String {
     use crate::crypto::PublicKey;
     let fingerprint = PublicKey::fingerprint_from_mldsa87_bytes(identity);
-    hex::encode(&fingerprint[..8]) // First 16 hex chars
+    hex::encode(fingerprint) // Full 128 hex chars
 }
 
 #[cfg(test)]

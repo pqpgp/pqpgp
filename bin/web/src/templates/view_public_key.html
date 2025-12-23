@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="card">
-    <h2>🔑 Public Key Details</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg> Public Key Details</h2>
     {% if algorithm == "ML-KEM-1024" %}
     <p>This is your <strong>encryption public key</strong> that others use to encrypt messages only you can decrypt. Share this key safely with anyone who needs to send you secure messages.</p>
     {% else %}
@@ -13,25 +13,25 @@
     
     <div class="form-group">
         <label><strong>Key ID:</strong></label>
-        <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px; font-family: monospace; word-break: break-all;">
+        <div style="padding: 10px; background-color: var(--bg-subtle); border-radius: 6px; font-family: monospace; word-break: break-all;">
             {{ key_id }}
         </div>
     </div>
     
     <div class="form-group">
         <label><strong>Algorithm:</strong></label>
-        <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px;">
+        <div style="padding: 10px; background-color: var(--bg-subtle); border-radius: 6px;">
             {% if algorithm == "ML-KEM-1024" %}
-                <span class="status-badge" style="background-color: #bee3f8; color: #2a4365;">🔒 {{ algorithm }} <small>(Post-Quantum Encryption)</small></span>
+                <span class="status-badge" style="background-color: #bee3f8; color: #2a4365;"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg> {{ algorithm }} <small>(Post-Quantum Encryption)</small></span>
             {% else %}
-                <span class="status-badge" style="background-color: #e6fffa; color: #234e52;">✍️ {{ algorithm }} <small>(Post-Quantum Signatures)</small></span>
+                <span class="status-badge" style="background-color: #e6fffa; color: #234e52;"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg> {{ algorithm }} <small>(Post-Quantum Signatures)</small></span>
             {% endif %}
         </div>
     </div>
     
     <div class="form-group">
         <label><strong>User IDs:</strong></label>
-        <div style="padding: 10px; background-color: #f7fafc; border-radius: 6px;">
+        <div style="padding: 10px; background-color: var(--bg-subtle); border-radius: 6px;">
             {% for user_id in user_ids %}
                 <div style="margin-bottom: 5px;">{{ user_id }}</div>
             {% endfor %}
@@ -41,11 +41,11 @@
     <div class="form-group">
         <label><strong>Public Key (PGP Armored Format):</strong></label>
         <div class="code-block">{{ public_key_armored }}</div>
-        <small style="color: #718096; display: block; margin-top: 10px;">
+        <small style="color: var(--text-muted); display: block; margin-top: 10px;">
             {% if algorithm == "ML-KEM-1024" %}
-            💡 Copy this entire block to share your encryption key. Others can import this to encrypt messages for you.
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg> Copy this entire block to share your encryption key. Others can import this to encrypt messages for you.
             {% else %}
-            💡 Copy this entire block to share your verification key. Others can import this to verify your signatures.
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg> Copy this entire block to share your verification key. Others can import this to verify your signatures.
             {% endif %}
         </small>
     </div>
@@ -53,44 +53,44 @@
     <div style="margin-top: 20px; display: flex; gap: 15px;">
         <a href="/keys" class="btn">← Back to Keys</a>
         <a href="/keys/export/{{ key_id }}" class="btn" style="background-color: #48bb78; color: white; text-decoration: none;">
-            📥 Download as File
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> Download as File
         </a>
     </div>
 </div>
 
 <div class="card">
     {% if algorithm == "ML-KEM-1024" %}
-    <h2>💡 How to Share Your Encryption Key</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg> How to Share Your Encryption Key</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">1. Copy & Share</h4>
             <p>Copy the armored encryption key above and share it with anyone who needs to send you encrypted messages.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid var(--red-light);">
             <h4 style="margin-top: 0; color: #4a5568;">2. Download File</h4>
             <p>Save your encryption key as a .asc file that others can import into their PQPGP systems.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #ed8936;">
             <h4 style="margin-top: 0; color: #4a5568;">3. Keep Private Key Safe</h4>
             <p>Never share your private key! Only you should have access to decrypt messages.</p>
         </div>
     </div>
     {% else %}
-    <h2>💡 How to Share Your Verification Key</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg> How to Share Your Verification Key</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #48bb78;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #48bb78;">
             <h4 style="margin-top: 0; color: #4a5568;">1. Copy & Share</h4>
             <p>Copy the armored verification key above and share it with anyone who needs to verify your signatures.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid var(--red-light);">
             <h4 style="margin-top: 0; color: #4a5568;">2. Download File</h4>
             <p>Save your verification key as a .asc file that others can import to authenticate your signatures.</p>
         </div>
         
-        <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #ed8936;">
+        <div style="padding: 15px; background: var(--bg-subtle); border-radius: 8px; border-left: 4px solid #ed8936;">
             <h4 style="margin-top: 0; color: #4a5568;">3. Keep Private Key Safe</h4>
             <p>Never share your private key! Only you should be able to create signatures.</p>
         </div>
@@ -98,7 +98,7 @@
     {% endif %}
     
     <div style="margin-top: 20px; padding: 15px; background-color: #fffbf0; border: 1px solid #fbd38d; border-radius: 8px;">
-        <h4 style="margin-top: 0; color: #744210;">🔐 Security Properties</h4>
+        <h4 style="margin-top: 0; color: #744210;"><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 6c1.4 0 2.8 1.1 2.8 2.5V11c.6.3 1 .9 1 1.5v3c0 1-.8 1.8-1.8 1.8h-4c-1 0-1.8-.8-1.8-1.8v-3c0-.6.4-1.2 1-1.5V9.5C9.2 8.1 10.6 7 12 7zm0 1.2c-.8 0-1.5.7-1.5 1.3V11h3V9.5c0-.6-.7-1.3-1.5-1.3z"/></svg> Security Properties</h4>
         <ul style="margin-bottom: 0; color: #744210;">
             {% if algorithm == "ML-KEM-1024" %}
             <li><strong>Encryption Key:</strong> Others use this key to encrypt messages only you can read</li>

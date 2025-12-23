@@ -7,7 +7,7 @@
 
 <div class="card">
     <h2>Move Thread</h2>
-    <p style="color: #718096;">
+    <p style="color: var(--text-muted);">
         Moving: <strong>{{ thread_title }}</strong><br>
         Currently in: <strong>{{ board_name }}</strong><br>
         Forum: <strong>{{ forum_name }}</strong>
@@ -22,10 +22,10 @@
     {% endif %}
 
     <h3>Select Destination Board</h3>
-    <p style="color: #718096; font-size: 0.9em;">Showing {{ boards.len() }} of {{ total_boards }} boards</p>
+    <p style="color: var(--text-muted); font-size: 0.9em;">Showing {{ boards.len() }} of {{ total_boards }} boards</p>
 
     {% if boards.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No other boards available.</p>
+    <p style="color: var(--text-muted); font-style: italic;">No other boards available.</p>
     {% else %}
     <div style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
         {% for board in boards %}
@@ -34,11 +34,11 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="destination_board" value="{{ board.hash }}">
 
-            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+            <div style="background: var(--bg-subtle); padding: 15px; border-radius: 8px; border: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <strong>{{ board.name }}</strong>
                     {% if !board.description.is_empty() %}
-                    <p style="color: #718096; margin: 5px 0 0 0; font-size: 0.9em;">{{ board.description }}</p>
+                    <p style="color: var(--text-muted); margin: 5px 0 0 0; font-size: 0.9em;">{{ board.description }}</p>
                     {% endif %}
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">

@@ -31,14 +31,14 @@
 <div class="card">
     <h2>Messages ({{ total_messages }} total)</h2>
     {% if messages.is_empty() %}
-    <p style="color: #718096;">No messages in this conversation yet.</p>
+    <p style="color: var(--text-muted);">No messages in this conversation yet.</p>
     {% else %}
     <div class="message-list" style="max-height: 500px; overflow-y: auto;">
         {% for msg in messages %}
         <div class="message {% if msg.is_outgoing %}message-outgoing{% else %}message-incoming{% endif %}"
              style="margin-bottom: 15px; padding: 15px; border-radius: 8px;
                     {% if msg.is_outgoing %}background-color: #e6f2ff; margin-left: 50px;{% else %}background-color: #f0f0f0; margin-right: 50px;{% endif %}">
-            <div style="font-size: 12px; color: #718096; margin-bottom: 5px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
                 {% if msg.is_outgoing %}You{% else %}{{ peer_short }}{% endif %} - {{ msg.timestamp_display }}
                 {% match msg.reply_to %}
                 {% when Some with (reply_id) %}
@@ -60,7 +60,7 @@
     </div>
 
     <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #718096; font-size: 0.9em;">Showing {{ messages.len() }} of {{ total_messages }} messages</span>
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ messages.len() }} of {{ total_messages }} messages</span>
         <div>
             {% if let Some(prev) = prev_cursor %}
             <a href="/forum/{{ forum_hash }}/pm/conversation/{{ conversation_id }}?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>

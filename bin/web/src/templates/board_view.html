@@ -8,7 +8,7 @@
 <div class="card">
     <h2>{{ board_name }}</h2>
     <p>{{ board_description }}</p>
-    <p style="color: #718096; font-size: 0.9em;">
+    <p style="color: var(--text-muted); font-size: 0.9em;">
         In forum: <strong>{{ forum_name }}</strong>
     </p>
 
@@ -22,7 +22,7 @@
 
     <h3>Board Moderators</h3>
     {% if board_moderators.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No board-specific moderators assigned. Forum moderators can manage this board.</p>
+    <p style="color: var(--text-muted); font-style: italic;">No board-specific moderators assigned. Forum moderators can manage this board.</p>
     {% else %}
     <ul style="margin: 0.5em 0; padding-left: 1.5em;">
         {% for moderator in board_moderators %}
@@ -36,7 +36,7 @@
 
     <h3>Threads</h3>
     {% if threads.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No threads yet. Start a discussion below!</p>
+    <p style="color: var(--text-muted); font-style: italic;">No threads yet. Start a discussion below!</p>
     {% else %}
     <table class="table">
         <thead>
@@ -53,8 +53,8 @@
             {% for thread in threads %}
             <tr>
                 <td><strong>{{ thread.title }}</strong></td>
-                <td style="color: #718096; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{ thread.body_preview }}</td>
-                <td><span class="key-id">{{ thread.author_short }}</span></td>
+                <td style="color: var(--text-muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{ thread.body_preview }}</td>
+                <td><a href="/forum/{{ forum_hash }}/user/{{ thread.author_fingerprint }}" class="key-id" style="text-decoration: none;">{{ thread.author_short }}</a></td>
                 <td>{{ thread.post_count }}</td>
                 <td>{{ thread.created_at_display }}</td>
                 <td>
@@ -66,7 +66,7 @@
     </table>
 
     <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #718096; font-size: 0.9em;">Showing {{ threads.len() }} of {{ total_threads }} threads</span>
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ threads.len() }} of {{ total_threads }} threads</span>
         <div>
             {% if let Some(prev) = prev_cursor %}
             <a href="/forum/{{ forum_hash }}/board/{{ board_hash }}?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>
@@ -126,7 +126,7 @@
 {% if is_forum_moderator %}
 <div class="card">
     <h2>Edit Board</h2>
-    <p style="color: #718096;">As a forum moderator, you can edit the board name and description.</p>
+    <p style="color: var(--text-muted);">As a forum moderator, you can edit the board name and description.</p>
     <form method="post" action="/forum/{{ forum_hash }}/board/{{ board_hash }}/edit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -164,7 +164,7 @@
 
 <div class="card">
     <h2>Manage Board Moderators</h2>
-    <p style="color: #718096;">As a forum moderator, you can add or remove board-specific moderators.</p>
+    <p style="color: var(--text-muted);">As a forum moderator, you can add or remove board-specific moderators.</p>
 
     <h3>Add Board Moderator</h3>
     <form method="post" action="/forum/{{ forum_hash }}/board/{{ board_hash }}/moderator/add">
@@ -241,7 +241,7 @@
 
 <div class="card">
     <h2>Hide Board</h2>
-    <p style="color: #718096;">As a forum moderator, you can hide this board. Hidden boards are not shown in the board list but remain in the DAG.</p>
+    <p style="color: var(--text-muted);">As a forum moderator, you can hide this board. Hidden boards are not shown in the board list but remain in the DAG.</p>
     <form method="post" action="/forum/{{ forum_hash }}/board/{{ board_hash }}/hide">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 

@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="card">
-    <h2>Public Forums</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg> Public Forums</h2>
     <p>Cryptographically signed public discussions with post-quantum security.</p>
 
     {% if has_error %}
@@ -16,7 +16,7 @@
     {% endif %}
 
     {% if forums.is_empty() %}
-    <p style="color: #718096; font-style: italic;">No forums available. Create one below!</p>
+    <p style="color: var(--text-muted); font-style: italic;">No forums available. Create one below!</p>
     {% else %}
     <table class="table">
         <thead>
@@ -44,7 +44,7 @@
     </table>
 
     <div style="margin-top: 1em; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #718096; font-size: 0.9em;">Showing {{ forums.len() }} of {{ total_forums }} forums</span>
+        <span style="color: var(--text-muted); font-size: 0.9em;">Showing {{ forums.len() }} of {{ total_forums }} forums</span>
         <div>
             {% if let Some(prev) = prev_cursor %}
             <a href="/forum?cursor={{ prev }}" class="btn btn-small">&larr; Previous</a>
@@ -64,8 +64,8 @@
 </div>
 
 <div class="card">
-    <h2>Join Forum by Hash</h2>
-    <p style="color: #718096;">Enter a forum hash to sync and join an existing forum from the relay.</p>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg> Join Forum by Hash</h2>
+    <p style="color: var(--text-muted);">Enter a forum hash to sync and join an existing forum from the relay.</p>
     <form method="post" action="/forum/join">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -82,7 +82,7 @@
 </div>
 
 <div class="card">
-    <h2>Create New Forum</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg> Create New Forum</h2>
     <form method="post" action="/forum">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -106,7 +106,7 @@
                 <option value="{{ key.key_id }}">{{ key.user_id }} ({{ key.key_id }})</option>
                 {% endfor %}
             </select>
-            <small style="color: #718096;">This key will be used to sign and own the forum.</small>
+            <small style="color: var(--text-muted);">This key will be used to sign and own the forum.</small>
         </div>
 
         <div class="form-group">
@@ -120,7 +120,7 @@
 </div>
 
 <div class="card">
-    <h2>How Forums Work</h2>
+    <h2><svg class="icon icon-lg" viewBox="0 0 24 24" fill="currentColor"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg> How Forums Work</h2>
     <ul>
         <li><strong>Cryptographic Integrity</strong> - Every post is signed with ML-DSA-87 (post-quantum secure)</li>
         <li><strong>DAG Structure</strong> - Content forms a Directed Acyclic Graph that can be rebuilt from any backup</li>
