@@ -2733,7 +2733,8 @@ impl ForumStorage {
             prefix.clone()
         };
 
-        // Collect post hashes, filtering hidden ones
+        // Collect post hashes, filtering hidden ones.
+        // We continue iteration until we have enough non-hidden posts (limit + 1).
         let mut post_hashes: Vec<ContentHash> = Vec::with_capacity(limit + 1);
         self.db
             .seek_iterate(CF_IDX_AUTHOR_POSTS, &seek_key, &prefix, |key, _| {
@@ -2741,11 +2742,12 @@ impl ForumStorage {
                 if key.len() == 264 {
                     let post_hash = ContentHash::from_bytes(key[200..264].try_into().unwrap());
 
-                    // Filter out hidden posts
+                    // Filter out hidden posts - keep iterating even if hidden
                     if !self.is_post_hidden(forum_hash, &post_hash).unwrap_or(false) {
                         post_hashes.push(post_hash);
                     }
                 }
+                // Continue until we have enough non-hidden posts
                 post_hashes.len() <= limit
             })?;
 

@@ -920,30 +920,32 @@ pub async fn forum_view_page(
     let cursor = pagination.get_cursor();
     let limit = pagination.get_limit();
 
+    // Storage function internally fetches limit+1 to detect has_more
     let paginated_result = app_state
         .forum_persistence
-        .get_boards_paginated(&forum_content_hash, cursor.as_ref(), limit + 1) // +1 to check for more
+        .get_boards_paginated(&forum_content_hash, cursor.as_ref(), limit)
         .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
             items: Vec::new(),
             next_cursor: None,
             total_count: Some(0),
         });
 
-    // Filter hidden boards and apply limit
+    // Filter hidden boards
     let filtered_boards: Vec<_> = paginated_result
         .items
         .into_iter()
         .filter(|b| !hidden_boards.contains(b.board.hash()))
         .collect();
 
-    let has_more = filtered_boards.len() > limit;
+    // has_more is determined by next_cursor presence
+    let has_more = paginated_result.next_cursor.is_some();
     let boards: Vec<BoardDisplayInfo> = filtered_boards
         .iter()
         .take(limit)
         .map(build_board_display_info_from_summary)
         .collect();
 
-    // Compute next cursor from the last item
+    // Use cursor from storage (already points to correct position)
     let next_cursor = if has_more {
         paginated_result.next_cursor.as_ref().map(|c| c.encode())
     } else {
@@ -1172,13 +1174,14 @@ pub async fn board_view_page(
     let cursor = pagination.get_cursor();
     let limit = pagination.get_limit();
 
+    // Storage function internally fetches limit+1 to detect has_more
     let paginated_result = app_state
         .forum_persistence
         .get_threads_paginated(
             &forum_content_hash,
             &board_content_hash,
             cursor.as_ref(),
-            limit + 1,
+            limit,
         )
         .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
             items: Vec::new(),
@@ -1186,14 +1189,15 @@ pub async fn board_view_page(
             total_count: Some(0),
         });
 
-    // Filter hidden threads and apply limit
+    // Filter hidden threads
     let filtered_threads: Vec<_> = paginated_result
         .items
         .into_iter()
         .filter(|s| !hidden_threads.contains(s.thread.hash()))
         .collect();
 
-    let has_more = filtered_threads.len() > limit;
+    // has_more is determined by next_cursor presence
+    let has_more = paginated_result.next_cursor.is_some();
     let threads: Vec<ThreadDisplayInfo> = filtered_threads
         .into_iter()
         .take(limit)
@@ -1462,13 +1466,14 @@ pub async fn thread_view_page(
     let cursor = pagination.get_cursor();
     let limit = pagination.get_limit();
 
+    // Storage function internally fetches limit+1 to detect has_more
     let paginated_result = app_state
         .forum_persistence
         .get_posts_paginated(
             &forum_content_hash,
             &thread_content_hash,
             cursor.as_ref(),
-            limit + 1,
+            limit,
         )
         .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
             items: Vec::new(),
@@ -1476,7 +1481,7 @@ pub async fn thread_view_page(
             total_count: Some(0),
         });
 
-    // Filter hidden posts and apply limit
+    // Filter hidden posts
     // PostSummary already includes resolved quote previews (batch-loaded)
     let filtered_posts: Vec<_> = paginated_result
         .items
@@ -1484,7 +1489,8 @@ pub async fn thread_view_page(
         .filter(|p| !hidden_posts.contains(p.post.hash()))
         .collect();
 
-    let has_more = filtered_posts.len() > limit;
+    // has_more is determined by next_cursor presence
+    let has_more = paginated_result.next_cursor.is_some();
 
     // Build post display info (quote previews already resolved in PostSummary)
     let post_displays: Vec<PostDisplayInfo> = filtered_posts
@@ -2455,23 +2461,25 @@ pub async fn move_thread_page_handler(
         .get_hidden_boards(&forum_content_hash)
         .unwrap_or_default();
 
+    // Storage function internally fetches limit+1 to detect has_more
     let paginated_result = app_state
         .forum_persistence
-        .get_boards_paginated(&forum_content_hash, cursor.as_ref(), limit + 1)
+        .get_boards_paginated(&forum_content_hash, cursor.as_ref(), limit)
         .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
             items: Vec::new(),
             next_cursor: None,
             total_count: None,
         });
 
-    // Filter out current board and hidden boards, and check if there's more
+    // Filter out current board and hidden boards
     let filtered: Vec<_> = paginated_result
         .items
         .into_iter()
         .filter(|b| *b.board.hash() != *board_hash && !hidden_boards.contains(b.board.hash()))
         .collect();
 
-    let has_more = filtered.len() > limit;
+    // has_more is determined by next_cursor presence
+    let has_more = paginated_result.next_cursor.is_some();
     let boards: Vec<BoardDisplayInfo> = filtered
         .into_iter()
         .take(limit)
@@ -5123,22 +5131,19 @@ pub async fn user_profile_page(
     let limit = query.get_limit();
 
     // Get paginated threads by author
+    // Note: storage function internally fetches limit+1 to detect has_more
     let threads_cursor = query.get_threads_cursor();
     let threads_result = app_state
         .forum_persistence
-        .get_author_threads_paginated(
-            &forum_hash,
-            &fingerprint,
-            threads_cursor.as_ref(),
-            limit + 1,
-        )
+        .get_author_threads_paginated(&forum_hash, &fingerprint, threads_cursor.as_ref(), limit)
         .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
             items: Vec::new(),
             next_cursor: None,
             total_count: None,
         });
 
-    let threads_has_more = threads_result.items.len() > limit;
+    // has_more is determined by next_cursor presence (storage handles the +1 detection)
+    let threads_has_more = threads_result.next_cursor.is_some();
     let fingerprint_short: String = fingerprint.chars().take(16).collect();
     let threads: Vec<ThreadDisplayInfo> = threads_result
         .items
@@ -5169,17 +5174,19 @@ pub async fn user_profile_page(
     };
 
     // Get paginated posts by author
+    // Note: storage function internally fetches limit+1 to detect has_more
     let posts_cursor = query.get_posts_cursor();
     let posts_result = app_state
         .forum_persistence
-        .get_author_posts_paginated(&forum_hash, &fingerprint, posts_cursor.as_ref(), limit + 1)
+        .get_author_posts_paginated(&forum_hash, &fingerprint, posts_cursor.as_ref(), limit)
         .unwrap_or_else(|_| pqpgp::forum::PaginatedResult {
             items: Vec::new(),
             next_cursor: None,
             total_count: None,
         });
 
-    let posts_has_more = posts_result.items.len() > limit;
+    // has_more is determined by next_cursor presence (storage handles the +1 detection)
+    let posts_has_more = posts_result.next_cursor.is_some();
     let posts: Vec<PostDisplayInfo> = posts_result
         .items
         .iter()
