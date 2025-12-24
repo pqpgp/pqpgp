@@ -58,7 +58,7 @@ num_cpus = "1.16"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 proptest = "1.9.0"         # Property-based testing
 pretty_assertions = "1.4.0"
-tempfile = "3.23.0"         # Temporary file/directory creation for tests
+tempfile = "3.24.0"         # Temporary file/directory creation for tests
 
 [[bin]]
 name = "pqpgp"
